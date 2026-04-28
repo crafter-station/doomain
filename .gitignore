@@ -1,0 +1,15 @@
+*-debug.log
+*-error.log
+**/.DS_Store
+/.idea
+/dist
+/tmp
+/node_modules
+*.tsbuildinfo
+oclif.manifest.json
+.claude/settings.local.json
+
+
+yarn.lock
+package-lock.json
+pnpm-lock.yaml
