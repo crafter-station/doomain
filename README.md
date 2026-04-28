@@ -1,20 +1,20 @@
 # Doomain
 
-Doomain links a Vercel project to a domain from the terminal.
+Doomain links a Vercel project to a custom domain from your terminal.
 
-It handles the repetitive parts of shipping a custom domain: finding the right Vercel project, choosing a DNS zone, adding the domain to Vercel, creating the required DNS records, waiting for DNS propagation, and asking Vercel to verify the domain.
+It handles the boring parts of custom-domain setup: selecting the Vercel project, finding the right DNS zone, adding the domain to Vercel, writing the Vercel DNS records, waiting for public DNS propagation, and asking Vercel to verify the domain.
 
-Use the interactive wizard when working by hand. Use `--json` when calling Doomain from scripts, CI, or agents.
+Use the interactive wizard when working by hand. Use explicit commands with `--json` for scripts, CI, or agents.
 
 ## Features
 
-- Interactive domain-linking wizard powered by Clack.
-- Non-interactive JSON output for automation and agent workflows.
+- Interactive Vercel domain-linking wizard.
+- Script-friendly commands with one JSON object on stdout.
 - Vercel project detection from `.vercel/project.json`.
-- DNS provider inference by longest matching zone.
-- Dry runs that preview Vercel and DNS changes before writing.
-- DNS propagation and Vercel verification waiting.
-- Built-in Spaceship, Namecheap, and Cloudflare providers.
+- DNS provider inference by longest matching configured zone.
+- Dry-run plans before writing changes.
+- DNS propagation and Vercel verification wait loop.
+- DNS provider support for Spaceship, Namecheap, and Cloudflare.
 
 ## Install
 
@@ -32,103 +32,67 @@ Run the wizard:
 doomain
 ```
 
-The wizard prompts for missing credentials, lets you select a Vercel account/team from the token, detects the current Vercel project when possible, lets you connect a DNS provider, lists available domains, previews the changes, and then applies them.
+The wizard will:
 
-For automation, pass everything explicitly and add `--json`:
+1. Ask for a Vercel token if one is not already configured.
+2. Let you choose a Vercel personal account or team.
+3. Detect and preselect a local Vercel project when `.vercel/project.json` exists.
+4. Connect a DNS provider if none is configured.
+5. List domains from configured DNS providers.
+6. Preview the Vercel and DNS changes.
+7. Apply the changes and request Vercel verification.
 
-```bash
-doomain link app.example.com --project my-app --json
-```
-
-## How It Works
-
-1. Resolve the Vercel account/team, then resolve the project from `--project`, `.vercel/project.json`, or the interactive project selector.
-2. Resolve the target domain from an argument, `--domain`, `--subdomain`, `--apex`, config, or environment variables.
-3. Choose the DNS provider from `--provider` or infer it from configured DNS zones.
-4. Add the domain to the Vercel project.
-5. Read Vercel's recommended target and verification records.
-6. Plan DNS changes against the current provider records.
-7. Apply DNS changes unless `--dry-run` is set.
-8. Wait for public DNS propagation and Vercel verification unless `--no-wait` is set.
-
-## Linking Domains
-
-Link a full domain:
+If you already know the target project and domain, run the link command directly:
 
 ```bash
-doomain link app.example.com --project my-app
+doomain link app.example.com --project my-vercel-project
 ```
 
-Link a subdomain from a base zone:
+## Scripted Setup
+
+For CI, shell scripts, and agents, use explicit commands and `--json`.
+
+First save Vercel credentials:
 
 ```bash
-doomain link --domain example.com --subdomain app --project my-app
+doomain auth vercel \
+  --token "$VERCEL_TOKEN" \
+  --team-id "$VERCEL_TEAM_ID" \
+  --json
 ```
 
-Link the apex/root domain:
+`--team-id` is optional for personal-account usage.
+
+Then connect one DNS provider:
 
 ```bash
-doomain link --domain example.com --apex --project my-app
+doomain providers connect cloudflare \
+  --credential apiToken="$CLOUDFLARE_API_TOKEN" \
+  --credential accountId="$CLOUDFLARE_ACCOUNT_ID" \
+  --json
 ```
 
-Preview changes without writing to Vercel or DNS:
+Preview the domain link:
 
 ```bash
-doomain link --provider spaceship --domain example.com --apex --project my-app --dry-run --json
+doomain link app.example.com --project my-vercel-project --dry-run --json
 ```
 
-Skip the verification wait:
+Apply it:
 
 ```bash
-doomain link app.example.com --project my-app --no-wait
+doomain link app.example.com --project my-vercel-project --json
 ```
 
-Overwrite conflicting DNS records:
+## Provider Setup
 
-```bash
-doomain link app.example.com --project my-app --force
-```
+Doomain stores local credentials in `~/.doomain/config.json` with `0600` file permissions. Environment variables override saved config values.
 
-## JSON And Agent Usage
-
-`--json` prints a single JSON object to stdout and never prompts. Use it for scripts, CI, or agent tools.
-
-```bash
-doomain link app.example.com --project my-app --json
-doomain link --domain app.example.com --project my-app --json
-doomain link --domain example.com --subdomain app --project my-app --json
-doomain projects list --json
-doomain providers list --json
-doomain providers status --no-verify --json
-doomain schema --json
-```
-
-When `--provider` is omitted, Doomain searches configured DNS providers and selects the longest matching DNS zone for the target domain. If more than one provider has the same best match, Doomain asks you to pass `--provider` explicitly.
-
-Use the schema command to inspect machine-readable command metadata:
-
-```bash
-doomain schema
-doomain schema link --json
-```
-
-## Credentials
-
-Doomain stores local configuration at:
-
-```bash
-~/.doomain/config.json
-```
-
-The config file is written with `0600` permissions. Environment variables override values in the local config.
-
-### Vercel
-
-```bash
-doomain auth vercel --token vercel_token
-```
-
-Interactive mode fetches Vercel teams from the token and lets you choose a team or your personal account. Use `--team-id` or `VERCEL_TEAM_ID` for non-interactive team-scoped usage.
+| Provider | Provider ID | Required credentials | Environment variables | Notes |
+| --- | --- | --- | --- | --- |
+| Spaceship | `spaceship` | `apiKey`, `apiSecret` | `SPACESHIP_API_KEY`, `SPACESHIP_API_SECRET` | API key needs domain read access and DNS record read/write access. |
+| Namecheap | `namecheap` | `apiUser`, `apiKey`, `clientIp` | `NAMECHEAP_API_USER`, `NAMECHEAP_API_KEY`, `NAMECHEAP_CLIENT_IP` | API access must be enabled and `clientIp` must be your whitelisted public IPv4. Optional: `username`, `sandbox`. |
+| Cloudflare | `cloudflare` | `apiToken`, `accountId` | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | API token needs `Zone:Read` and `DNS:Edit`. Vercel records are written as DNS-only records, not proxied. |
 
 ### Spaceship
 
@@ -143,8 +107,6 @@ Compatibility aliases are also available:
 ```bash
 doomain providers connect spaceship --api-key spaceship_key --api-secret spaceship_secret
 ```
-
-Spaceship API keys need domain read access and DNS record read/write access.
 
 ### Namecheap
 
@@ -165,7 +127,7 @@ doomain providers connect namecheap \
   --credential sandbox=true
 ```
 
-Namecheap API access must be enabled, and `clientIp` must be whitelisted in Namecheap API Access settings.
+`NAMECHEAP_USERNAME` is optional. If omitted, Doomain uses `apiUser` as the Namecheap username.
 
 ### Cloudflare
 
@@ -175,119 +137,448 @@ doomain providers connect cloudflare \
   --credential accountId=your_cloudflare_account_id
 ```
 
-Cloudflare API tokens need `Zone:Read` and `DNS:Edit` permissions for the account. Doomain creates Vercel records as DNS-only records, not proxied records.
+Cloudflare records created for Vercel `A`, `AAAA`, and `CNAME` targets are set to `proxied: false` so Vercel can validate the domain.
 
-## Provider Management
+## Linking Domains
 
-List supported providers:
+You can pass the full target domain as a positional argument:
+
+```bash
+doomain link app.example.com --project my-app
+```
+
+Or pass a base domain and subdomain:
+
+```bash
+doomain link --domain example.com --subdomain app --project my-app
+```
+
+Link the apex/root domain:
+
+```bash
+doomain link --domain example.com --apex --project my-app
+```
+
+An exact zone match without `--subdomain` is also treated as apex:
+
+```bash
+doomain link example.com --project my-app
+```
+
+Preview without writing to Vercel or DNS:
+
+```bash
+doomain link app.example.com --project my-app --dry-run --json
+```
+
+Skip the DNS/Vercel verification wait:
+
+```bash
+doomain link app.example.com --project my-app --no-wait
+```
+
+Change the wait timeout, in seconds:
+
+```bash
+doomain link app.example.com --project my-app --timeout 600
+```
+
+Use a specific DNS provider instead of provider inference:
+
+```bash
+doomain link app.example.com --project my-app --provider cloudflare
+```
+
+Use `-p` as shorthand for `--project`:
+
+```bash
+doomain link app.example.com -p my-app
+```
+
+## What Gets Created
+
+For apex/root domains, Doomain creates Vercel's apex `A` record:
+
+```text
+A @ 76.76.21.21
+```
+
+For subdomains, Doomain creates a `CNAME` to Vercel's recommended target. If Vercel does not return a special target, it uses:
+
+```text
+CNAME app cname.vercel-dns.com
+```
+
+During real linking, Doomain also reads Vercel's domain response and adds any required TXT verification records, for example:
+
+```text
+TXT _vercel vc-domain-verify=app.example.com,...
+```
+
+## Project Detection
+
+`--project` accepts a Vercel project id or name. If you omit it, Doomain searches upward from the current directory for `.vercel/project.json` and uses its `projectId`.
+
+The interactive wizard also uses `.vercel/project.json`, but only preselects the local project when the detected `orgId` matches the selected Vercel account or team.
+
+## Provider And Zone Inference
+
+When `--provider` is omitted, Doomain lists zones from every configured provider and chooses the longest zone that matches the target domain.
+
+Example: for `api.dev.example.com`, a provider zone named `dev.example.com` wins over `example.com`.
+
+If two providers have the same best matching zone, Doomain stops with `PROVIDER_ZONE_AMBIGUOUS`. Re-run with `--provider` to choose one:
+
+```bash
+doomain link app.example.com --project my-app --provider cloudflare
+```
+
+## Safety, Dry Runs, And Conflicts
+
+Use `--dry-run` before applying changes:
+
+```bash
+doomain link app.example.com --project my-app --dry-run --json
+```
+
+Dry runs do not write to Vercel or DNS. They resolve the target project, provider, zone, and base Vercel DNS record. They do not add the domain to Vercel, fetch Vercel TXT verification records, or inspect current DNS records for conflicts.
+
+DNS conflict rules:
+
+- Existing exact records are skipped.
+- TXT records can coexist at the same name.
+- Same-name, same-type conflicts require `--force`.
+- CNAME slot conflicts require `--force` because a CNAME cannot share a name with most other record types.
+
+Use `--force` only when you intend to replace conflicting DNS records or move an existing Vercel alias:
+
+```bash
+doomain link app.example.com --project my-app --force
+```
+
+`--force` can remove an existing Vercel alias from another project and add it to the target project.
+
+Namecheap note: Namecheap's API writes DNS through `setHosts`, which replaces the full host list. Doomain reads all existing records first, applies planned changes in memory, preserves unrelated records, then submits the complete final record set.
+
+## JSON And Agent Usage
+
+Use `--json` for automation. JSON mode never prompts and writes exactly one JSON object to stdout.
+
+Successful commands use this shape:
+
+```json
+{"ok":true,"data":{}}
+```
+
+Failed commands use this shape:
+
+```json
+{"ok":false,"error":{"code":"MISSING_ARGUMENT","message":"Domain is required."}}
+```
+
+JSON mode is also enabled automatically when stdout is not a TTY, which makes piped commands script-safe.
+
+Use explicit commands for agents. The bare `doomain` command is interactive, and `doomain --json` returns an error that points agents to `doomain link --json`.
+
+Useful agent-safe commands:
+
+```bash
+doomain link app.example.com --project my-app --json
+doomain providers list --json
+doomain providers status --no-verify --json
+doomain domains list --provider cloudflare --domain example.com --json
+doomain projects list --search my-app --json
+doomain schema --json
+doomain schema link --json
+```
+
+The schema command prints machine-readable metadata for the documented command contracts:
+
+```bash
+doomain schema --json
+doomain schema "providers connect" --json
+```
+
+## Command Reference
+
+Run `doomain help <command>` for oclif-generated help.
+
+### `doomain`
+
+Starts the interactive wizard.
+
+```bash
+doomain
+```
+
+### `doomain link [domain]`
+
+Links a Vercel project to a domain and creates DNS records.
+
+Common flags:
+
+- `--domain <domain>`: target domain or base zone.
+- `--subdomain <name>`: subdomain under `--domain`.
+- `--apex`: use the root/apex domain.
+- `-p, --project <project>`: Vercel project id or name.
+- `--provider <id>`: DNS provider id.
+- `--dry-run`: preview without writing.
+- `--force`: overwrite DNS conflicts and allow Vercel alias moves.
+- `--wait`, `--no-wait`: wait for DNS and Vercel verification. Default is `--wait`.
+- `--timeout <seconds>`: wait timeout. Default is `300`.
+- `--json`: output one JSON object.
+
+Examples:
+
+```bash
+doomain link app.example.com --project my-app
+doomain link --domain example.com --subdomain app --project my-app
+doomain link --domain example.com --apex --project my-app
+doomain link app.example.com --project my-app --dry-run --json
+```
+
+### `doomain auth vercel`
+
+Saves Vercel credentials locally.
+
+```bash
+doomain auth vercel --token vercel_token
+doomain auth vercel --token vercel_token --team-id team_123 --json
+```
+
+### `doomain auth logout vercel`
+
+Removes saved Vercel credentials from the local config file.
+
+```bash
+doomain auth logout vercel
+doomain auth logout vercel --json
+```
+
+If `VERCEL_TOKEN` or `VERCEL_TEAM_ID` are still set, they continue to override local config.
+
+### `doomain providers list`
+
+Lists supported DNS providers.
 
 ```bash
 doomain providers list
+doomain providers list --json
 ```
 
-Interactively add a provider:
+### `doomain providers connect [provider]`
+
+Saves DNS provider credentials locally.
 
 ```bash
-doomain providers add
+doomain providers connect cloudflare -c apiToken=token -c accountId=account_id
+doomain providers connect namecheap -c apiUser=user -c apiKey=key -c clientIp=127.0.0.1 --json
+doomain providers connect spaceship --api-key key --api-secret secret
 ```
 
-Check configured provider health:
+Common flags:
+
+- `-c, --credential key=value`: provider credential. Can be repeated.
+- `--api-key <key>`: Spaceship compatibility alias for `apiKey`.
+- `--api-secret <secret>`: Spaceship compatibility alias for `apiSecret`.
+- `--no-verify`: save credentials without calling the provider API first.
+- `--json`: output one JSON object.
+
+### `doomain providers add [provider]`
+
+Alias for `providers connect`.
+
+```bash
+doomain providers add cloudflare
+```
+
+### `doomain providers status`
+
+Shows configured provider health.
 
 ```bash
 doomain providers status
 doomain providers status --no-verify --json
 ```
 
-Disconnect a saved DNS provider:
+### `doomain providers verify <provider>`
+
+Verifies saved provider credentials.
 
 ```bash
-doomain providers disconnect namecheap
-doomain providers disconnect cloudflare --json
-```
-
-Remove saved Vercel credentials:
-
-```bash
-doomain auth logout vercel
-```
-
-Logout commands remove credentials from `~/.doomain/config.json`. If matching environment variables are still set, they continue to override local config.
-
-Verify one provider's saved credentials:
-
-```bash
-doomain providers verify spaceship
+doomain providers verify cloudflare
 doomain providers verify namecheap --json
 ```
 
-List DNS zones and records:
+### `doomain providers disconnect <provider>`
+
+Removes saved DNS provider credentials locally. `providers logout` is an alias.
 
 ```bash
-doomain domains list
+doomain providers disconnect cloudflare
+doomain providers logout namecheap --json
+```
+
+Environment variables for that provider still override local config after disconnect.
+
+### `doomain domains list`
+
+Lists DNS zones and records.
+
+```bash
+doomain domains list --provider cloudflare
 doomain domains list --provider cloudflare --domain example.com --json
+```
+
+If `--provider` is omitted, this command uses `DOOMAIN_PROVIDER`, then the saved default provider, then `spaceship`.
+
+### `doomain projects list`
+
+Lists Vercel projects for the configured Vercel account or team.
+
+```bash
+doomain projects list
+doomain projects list --search my-app --json
+```
+
+### `doomain verify`
+
+Asks Vercel to verify a project domain without changing DNS.
+
+```bash
+doomain verify --domain example.com --subdomain app --project my-app
+doomain verify --domain example.com --apex --project my-app --json
+```
+
+For `verify`, pass a base domain plus `--subdomain`, or pass a base domain plus `--apex`.
+
+### `doomain schema [command]`
+
+Prints machine-readable command metadata.
+
+```bash
+doomain schema --json
+doomain schema link --json
+doomain schema "providers connect" --json
 ```
 
 ## Environment Variables
 
+Vercel:
+
 ```bash
 VERCEL_TOKEN
 VERCEL_TEAM_ID
+```
+
+Spaceship:
+
+```bash
 SPACESHIP_API_KEY
 SPACESHIP_API_SECRET
+```
+
+Namecheap:
+
+```bash
 NAMECHEAP_API_USER
 NAMECHEAP_API_KEY
 NAMECHEAP_USERNAME
 NAMECHEAP_CLIENT_IP
 NAMECHEAP_SANDBOX
-CLOUDFLARE_API_TOKEN
-CLOUDFLARE_ACCOUNT_ID
-DOOMAIN_DOMAIN
-DOOMAIN_PROVIDER
-DOOMAIN_CONFIG_FILE
 ```
 
-## Commands
+Cloudflare:
 
 ```bash
-doomain                         # interactive wizard
-doomain link                    # link a Vercel project and domain
-doomain auth vercel             # save Vercel credentials
-doomain auth logout vercel      # remove saved Vercel credentials
-doomain providers list          # list supported DNS providers
-doomain providers add           # interactively add a DNS provider
-doomain providers connect       # save provider credentials
-doomain providers disconnect    # remove saved provider credentials
-doomain providers status        # show configured provider health
-doomain providers verify        # verify provider credentials
-doomain domains list            # list DNS zones and records
-doomain projects list           # list Vercel projects
-doomain verify                  # ask Vercel to verify a domain
-doomain schema                  # print command schemas for agents
+CLOUDFLARE_API_TOKEN
+CLOUDFLARE_ACCOUNT_ID
 ```
 
-Run `doomain help <command>` for command-specific flags and examples.
+Doomain defaults and config:
 
-## Provider Notes
+```bash
+DOOMAIN_DOMAIN
+DOOMAIN_PROVIDER
+DOOMAIN_CONFIG_DIR
+DOOMAIN_CONFIG_FILE
+DOOMAIN_DEBUG
+```
 
-Spaceship, Namecheap, and Cloudflare are implemented through a shared DNS provider contract. Each provider declares its credentials and capabilities, then implements zone listing, record listing, change planning, and change application behind the same interface.
+Notes:
 
-Namecheap writes DNS through `setHosts`, which replaces the full host list. Doomain reads all existing records first, applies the planned change in memory, preserves unrelated records, then submits the complete final record set.
+- `DOOMAIN_DOMAIN` is used by the interactive wizard and internal link planning, but the `doomain link` command currently still requires a positional domain or `--domain` before it calls the linker.
+- `DOOMAIN_PROVIDER` is used by the interactive wizard and `domains list`. For `link`, pass `--provider` when you want to force a specific provider.
+- Set `DOOMAIN_DEBUG=1` to enable provider debug mode where supported.
+- Use `DOOMAIN_CONFIG_FILE` in tests or scripts when you want isolated credentials.
 
-Cloudflare supports proxied records generally, but Doomain writes Vercel `A`, `AAAA`, and `CNAME` records with `proxied: false` so Vercel can validate them correctly.
+## Troubleshooting
+
+`Missing Vercel token`
+
+Run `doomain auth vercel` or set `VERCEL_TOKEN`.
+
+`No DNS provider is configured`
+
+Run `doomain providers connect <provider>` or set the provider's required environment variables.
+
+`PROVIDER_ZONE_NOT_FOUND`
+
+The selected provider does not have a DNS zone matching the target domain. Check `doomain domains list --provider <provider>` or pass the correct `--provider`.
+
+`PROVIDER_ZONE_AMBIGUOUS`
+
+More than one configured provider has the same best matching zone. Re-run with `--provider cloudflare`, `--provider namecheap`, or `--provider spaceship`.
+
+Namecheap authentication or permission errors
+
+Make sure Namecheap API access is enabled and your current public IPv4 is whitelisted in Namecheap API Access settings.
+
+Cloudflare permission errors
+
+Make sure the API token has `Zone:Read` and `DNS:Edit` permissions for the account that owns the zones.
+
+DNS propagation timeout
+
+The DNS records may have been saved even if Vercel verification timed out. Check the domain in Vercel, inspect records with `doomain domains list`, or re-run verification with `doomain verify`.
+
+Domain already assigned to another Vercel project
+
+If you intend to move it, re-run `doomain link` with `--force`. This can remove the alias from the previous Vercel project.
+
+SSL certificate is not ready yet
+
+Vercel may need a few extra minutes to provision SSL after the domain verifies.
 
 ## Development
 
+This repository is a TypeScript ESM oclif CLI package.
+
 ```bash
-bun install
+bun install --frozen-lockfile
 bun run build
 bun run test
 ```
 
-Useful scripts:
+Useful commands:
 
 ```bash
 bun run lint
-bun run prepack
+bun run check
+bun run format
+bunx mocha --forbid-only "test/path/to-file.test.ts"
+./bin/dev.js link app.example.com --project my-app --dry-run
 ```
 
-The package is an oclif CLI. Source lives in `src/commands` and `src/lib`; compiled output is written to `dist`.
+Notes for contributors:
+
+- Source commands live in `src/commands/**`.
+- Shared logic lives in `src/lib/**`.
+- Build output goes to `dist/`; do not edit `dist` directly.
+- `examples/**` is excluded from this package's Biome surface.
+- Public command contract metadata lives in `src/lib/command-schema.ts`.
+- `prepack` runs `oclif manifest && oclif readme`, which may update generated README command docs.
+
+## License
+
+MIT
