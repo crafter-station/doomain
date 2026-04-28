@@ -45,7 +45,7 @@ export default class Link extends Command {
         return
       }
 
-      out.intro('DMLink')
+      out.intro('Doomain')
       spinner = out.spinner()
       spinner.start('Linking Vercel project and domain')
       const result = await linkDomain({

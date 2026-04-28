@@ -87,7 +87,7 @@ export class SpaceshipProvider implements DnsProvider {
     this.http = createProviderHttpClient({
       baseUrl: SPACESHIP_API_URL,
       errorMessages: {
-        401: 'Spaceship rejected the API key/secret. Re-run `dmlink providers connect spaceship` with valid credentials.',
+        401: 'Spaceship rejected the API key/secret. Re-run `doomain providers connect spaceship` with valid credentials.',
         403: 'Spaceship API key is missing required scopes. Enable domains:read and dnsrecords:read/write.',
         429: 'Spaceship rate limit exceeded. Try again later.',
       },

@@ -1,4 +1,4 @@
-import {DmlinkError} from '../errors.js'
+import {DoomainError} from '../errors.js'
 import {ensureProviderId} from '../validate.js'
 import {cloudflareProviderDefinition} from './cloudflare/index.js'
 import {createProviderContext} from './core/config.js'
@@ -15,7 +15,7 @@ export function listProviderDefinitions(): DnsProviderDefinition[] {
 export function getProviderDefinition(id: string): DnsProviderDefinition {
   const providerId = ensureProviderId(id)
   const definition = definitions.find((provider) => provider.id === providerId)
-  if (!definition) throw new DmlinkError('PROVIDER_NOT_FOUND', `Unsupported DNS provider: ${id}`)
+  if (!definition) throw new DoomainError('PROVIDER_NOT_FOUND', `Unsupported DNS provider: ${id}`)
   return definition
 }
 

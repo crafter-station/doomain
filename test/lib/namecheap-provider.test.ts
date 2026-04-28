@@ -137,9 +137,9 @@ describe('namecheap provider', () => {
   })
 
   it('does not save invalid provider credentials when verification fails', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'dmlink-namecheap-'))
+    const dir = mkdtempSync(join(tmpdir(), 'doomain-namecheap-'))
     const configFile = join(dir, 'config.json')
-    process.env.DMLINK_CONFIG_FILE = configFile
+    process.env.DOOMAIN_CONFIG_FILE = configFile
     globalThis.fetch = (async () => ({
       ok: true,
       status: 200,

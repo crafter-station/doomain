@@ -1,16 +1,16 @@
-import {DmlinkError, type DmlinkErrorCode} from '../../errors.js'
+import {DoomainError, type DoomainErrorCode} from '../../errors.js'
 
-export class ProviderError extends DmlinkError {
+export class ProviderError extends DoomainError {
   readonly providerId: string
 
-  constructor(providerId: string, code: DmlinkErrorCode, message: string, details?: unknown) {
+  constructor(providerId: string, code: DoomainErrorCode, message: string, details?: unknown) {
     super(code, message, details)
     this.name = 'ProviderError'
     this.providerId = providerId
   }
 }
 
-export function providerCodeFromStatus(status: number): DmlinkErrorCode {
+export function providerCodeFromStatus(status: number): DoomainErrorCode {
   if (status === 401) return 'PROVIDER_AUTH_FAILED'
   if (status === 403) return 'PROVIDER_PERMISSION_DENIED'
   if (status === 429) return 'PROVIDER_RATE_LIMITED'

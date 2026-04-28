@@ -1,4 +1,4 @@
-import {loadConfig, type DmlinkConfig} from '../config.js'
+import {loadConfig, type DoomainConfig} from '../config.js'
 import {getProviderCredential} from './core/config.js'
 import {createProvider, listProviderDefinitions} from './registry.js'
 import type {DnsProviderDefinition} from './types.js'
@@ -14,7 +14,7 @@ export interface ProviderStatus {
   verified?: boolean
 }
 
-export function isProviderConfigured(definition: DnsProviderDefinition, config: DmlinkConfig): boolean {
+export function isProviderConfigured(definition: DnsProviderDefinition, config: DoomainConfig): boolean {
   return definition.credentials.every(
     (credential) => credential.required === false || Boolean(getProviderCredential(config, definition.id, credential)),
   )

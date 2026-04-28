@@ -2,7 +2,7 @@ import {Command} from '@oclif/core'
 import * as p from '@clack/prompts'
 
 import {loadConfig, updateConfig} from '../lib/config.js'
-import {DmlinkError} from '../lib/errors.js'
+import {DoomainError} from '../lib/errors.js'
 import {jsonFlag} from '../lib/flags.js'
 import {createLinkPlan, linkDomain} from '../lib/link-domain.js'
 import {detectLocalVercelProject} from '../lib/local-vercel.js'
@@ -149,20 +149,20 @@ export default class Wizard extends Command {
     if (out.json) {
       outputError(
         true,
-        new DmlinkError('MISSING_ARGUMENT', 'The root `dmlink` command is interactive. Use `dmlink link --json` for agents.'),
+        new DoomainError('MISSING_ARGUMENT', 'The root `doomain` command is interactive. Use `doomain link --json` for agents.'),
         'MISSING_ARGUMENT',
       )
       this.exit(1)
     }
 
     try {
-      p.intro('DMLink')
+      p.intro('Doomain')
       const config = await loadConfig()
       const providerDefinitions = listProviderDefinitions()
       let vercelToken = process.env.VERCEL_TOKEN || config.vercel?.token
       let vercelTeamId = process.env.VERCEL_TEAM_ID || config.vercel?.teamId
-      const defaultProvider = process.env.DMLINK_PROVIDER || config.defaults?.provider
-      const defaultDomain = process.env.DMLINK_DOMAIN || config.defaults?.domain
+      const defaultProvider = process.env.DOOMAIN_PROVIDER || config.defaults?.provider
+      const defaultDomain = process.env.DOOMAIN_DOMAIN || config.defaults?.domain
 
       if (!vercelToken) {
         vercelToken = (await promptRequired('Vercel token', {password: true})) ?? undefined
@@ -214,7 +214,7 @@ export default class Wizard extends Command {
         activeSpinner = undefined
 
         if (projects.length === 0) {
-          throw new DmlinkError('PROJECT_NOT_FOUND', `No Vercel projects found in ${teamDisplay}.`)
+          throw new DoomainError('PROJECT_NOT_FOUND', `No Vercel projects found in ${teamDisplay}.`)
         }
 
         const selected = await p.autocomplete({
@@ -246,7 +246,7 @@ export default class Wizard extends Command {
         const domainSpinner = p.spinner()
         activeSpinner = domainSpinner
         domainSpinner.start(`Verifying ${selectedDefinition.displayName} credentials and loading domains`)
-        const provider = selectedDefinition.create({credentials, debug: process.env.DMLINK_DEBUG === '1'})
+        const provider = selectedDefinition.create({credentials, debug: process.env.DOOMAIN_DEBUG === '1'})
         const zones = await provider.listZones()
         domainSpinner.stop(
           `Connected ${selectedDefinition.displayName} and loaded ${zones.length} domain${zones.length === 1 ? '' : 's'}`,
@@ -286,7 +286,7 @@ export default class Wizard extends Command {
       }
 
       if (domainOptions.length === 0) {
-        throw new DmlinkError(
+        throw new DoomainError(
           'CONFIG_NOT_FOUND',
           'No domains found in configured DNS providers. Verify provider credentials and domain permissions.',
         )
@@ -323,7 +323,7 @@ export default class Wizard extends Command {
       }))
 
       const mode = await p.select({
-        message: 'What should DMLink add?',
+        message: 'What should Doomain add?',
         options: [
           {label: `Subdomain under ${domain}`, value: 'subdomain'},
           {label: `Root domain (${domain})`, value: 'apex'},

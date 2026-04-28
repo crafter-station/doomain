@@ -11,15 +11,15 @@
 
 ## Structure
 - This is a single TypeScript ESM oclif CLI package; source entrypoints are `src/commands/**` and shared logic is in `src/lib/**`.
-- `bin/run.js` routes bare `dmlink` and `dmlink --json` to hidden `wizard`; JSON/agent flows should use explicit commands such as `link --json`.
+- `bin/run.js` routes bare `doomain` and `doomain --json` to hidden `wizard`; JSON/agent flows should use explicit commands such as `link --json`.
 - oclif command discovery points at compiled `dist/commands`, so command changes usually need `bun run build` before testing packaged behavior through `bin/run.js`.
 - `examples/**` is excluded by Biome and is a separate example project; do not treat it as part of this package's build or lint surface.
 
 ## CLI And Output Contracts
 - Machine-readable commands should emit exactly one JSON object through `createOutput({json})`; non-JSON mode uses Clack prompts/spinners.
 - `shouldUseJson` also enables JSON when stdout is not a TTY, so tests or piped runs may be JSON even without `--json`.
-- `dmlink schema --json` is the in-repo command contract for agent-safe commands; update `src/lib/command-schema.ts` when adding or changing public command flags/examples.
-- Local config defaults to `~/.dmlink/config.json`, but tests isolate it with `DMLINK_CONFIG_FILE`; use that env var for any test touching credentials.
+- `doomain schema --json` is the in-repo command contract for agent-safe commands; update `src/lib/command-schema.ts` when adding or changing public command flags/examples.
+- Local config defaults to `~/.doomain/config.json`, but tests isolate it with `DOOMAIN_CONFIG_FILE`; use that env var for any test touching credentials.
 
 ## Provider Rules
 - Providers are registered only in `src/lib/providers/registry.ts`; adding a provider requires adding its definition there.

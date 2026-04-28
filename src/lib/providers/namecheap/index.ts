@@ -330,7 +330,7 @@ export const namecheapProviderDefinition: DnsProviderDefinition = {
       'Open Account Dashboard > Profile > Tools > API Access:',
       'https://ap.www.namecheap.com/settings/tools/apiaccess/',
       'Enable API access, copy your API key, and add your current public IPv4 to Whitelisted IPs.',
-      'DMLink preserves existing records when updating Namecheap DNS, but Namecheap host writes replace the full host list.',
+      'Doomain preserves existing records when updating Namecheap DNS, but Namecheap host writes replace the full host list.',
     ],
   },
   create(context) {

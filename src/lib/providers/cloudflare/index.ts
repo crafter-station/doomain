@@ -276,8 +276,8 @@ export const cloudflareProviderDefinition: DnsProviderDefinition = {
   setup: {
     notes: [
       'Create a Cloudflare API token with Zone:Read and DNS:Edit permissions for the account.',
-      'Use the Cloudflare account ID that owns the DNS zones you want DMLink to manage.',
-      'DMLink creates Vercel records as DNS-only records, not proxied records.',
+      'Use the Cloudflare account ID that owns the DNS zones you want Doomain to manage.',
+      'Doomain creates Vercel records as DNS-only records, not proxied records.',
     ],
   },
   create(context) {

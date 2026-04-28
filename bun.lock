@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "dmlink",
+      "name": "doomain",
       "dependencies": {
         "@clack/prompts": "^1.2.0",
         "@oclif/core": "^4",

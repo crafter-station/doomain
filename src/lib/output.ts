@@ -1,6 +1,6 @@
 import * as p from '@clack/prompts'
 
-import {DmlinkError, type DmlinkErrorCode, toDmlinkError} from './errors.js'
+import {DoomainError, type DoomainErrorCode, toDoomainError} from './errors.js'
 
 export interface JsonSuccess<T> {
   ok: true
@@ -10,7 +10,7 @@ export interface JsonSuccess<T> {
 export interface JsonFailure {
   ok: false
   error: {
-    code: DmlinkErrorCode
+    code: DoomainErrorCode
     message: string
     details?: unknown
   }
@@ -75,20 +75,20 @@ export function createOutput(opts: {json?: boolean} = {}): OutputContext {
   }
 }
 
-export function outputError(json: boolean, error: unknown, fallbackCode: DmlinkErrorCode): void {
-  const dmlinkError = error instanceof DmlinkError ? error : toDmlinkError(error, fallbackCode)
+export function outputError(json: boolean, error: unknown, fallbackCode: DoomainErrorCode): void {
+  const doomainError = error instanceof DoomainError ? error : toDoomainError(error, fallbackCode)
 
   if (json) {
     writeJson({
       ok: false,
       error: {
-        code: dmlinkError.code,
-        message: dmlinkError.message,
-        ...(dmlinkError.details === undefined ? {} : {details: dmlinkError.details}),
+        code: doomainError.code,
+        message: doomainError.message,
+        ...(doomainError.details === undefined ? {} : {details: doomainError.details}),
       },
     })
     return
   }
 
-  p.log.error(dmlinkError.message)
+  p.log.error(doomainError.message)
 }

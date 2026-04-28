@@ -1,5 +1,5 @@
 import {loadConfig} from './config.js'
-import {DmlinkError} from './errors.js'
+import {DoomainError} from './errors.js'
 
 const VERCEL_API_URL = 'https://api.vercel.com'
 export const VERCEL_APEX_A_RECORD = '76.76.21.21'
@@ -55,7 +55,7 @@ export async function resolveVercelConfig(): Promise<VercelConfig> {
   const teamId = process.env.VERCEL_TEAM_ID || config.vercel?.teamId
 
   if (!token) {
-    throw new DmlinkError('MISSING_CREDENTIALS', 'Missing Vercel token. Run `dmlink auth vercel` or set VERCEL_TOKEN.')
+    throw new DoomainError('MISSING_CREDENTIALS', 'Missing Vercel token. Run `doomain auth vercel` or set VERCEL_TOKEN.')
   }
 
   return {token, teamId}
@@ -72,7 +72,7 @@ function apiErrorMessage(status: number, body?: VercelApiErrorBody): string {
 }
 
 function isAlreadyAddedError(error: unknown): boolean {
-  if (!(error instanceof DmlinkError)) return false
+  if (!(error instanceof DoomainError)) return false
   const details = error.details as VercelApiErrorBody | undefined
   const text = `${error.message} ${details?.error?.code ?? ''}`.toLowerCase()
   return text.includes('already') || text.includes('conflict') || text.includes('domain_already')
@@ -91,7 +91,7 @@ export function createVercelClient(config: VercelConfig) {
 
     if (!response.ok) {
       const body = (await response.json().catch(() => undefined)) as VercelApiErrorBody | undefined
-      throw new DmlinkError('DOMAIN_LINK_FAILED', apiErrorMessage(response.status, body), body)
+      throw new DoomainError('DOMAIN_LINK_FAILED', apiErrorMessage(response.status, body), body)
     }
 
     if (response.status === 204) return undefined as T

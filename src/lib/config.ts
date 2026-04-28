@@ -3,11 +3,11 @@ import {homedir} from 'node:os'
 import {dirname, join} from 'node:path'
 
 export function getConfigDir(): string {
-  return process.env.DMLINK_CONFIG_DIR || join(homedir(), '.dmlink')
+  return process.env.DOOMAIN_CONFIG_DIR || join(homedir(), '.doomain')
 }
 
 export function getConfigFile(): string {
-  return process.env.DMLINK_CONFIG_FILE || join(getConfigDir(), 'config.json')
+  return process.env.DOOMAIN_CONFIG_FILE || join(getConfigDir(), 'config.json')
 }
 
 export const CONFIG_DIR = getConfigDir()
@@ -29,7 +29,7 @@ export interface SpaceshipProviderConfig extends ProviderConfig {
   domains?: string[]
 }
 
-export interface DmlinkConfig {
+export interface DoomainConfig {
   vercel?: VercelConfig
   providers?: {
     spaceship?: SpaceshipProviderConfig
@@ -41,22 +41,22 @@ export interface DmlinkConfig {
   }
 }
 
-export async function loadConfig(): Promise<DmlinkConfig> {
+export async function loadConfig(): Promise<DoomainConfig> {
   try {
     const data = await readFile(getConfigFile(), 'utf8')
-    return JSON.parse(data) as DmlinkConfig
+    return JSON.parse(data) as DoomainConfig
   } catch {
     return {}
   }
 }
 
-export async function saveConfig(config: DmlinkConfig): Promise<void> {
+export async function saveConfig(config: DoomainConfig): Promise<void> {
   const configFile = getConfigFile()
   await mkdir(dirname(configFile), {recursive: true})
   await writeFile(configFile, `${JSON.stringify(config, null, 2)}\n`, {mode: 0o600})
 }
 
-export async function updateConfig(updater: (config: DmlinkConfig) => DmlinkConfig): Promise<DmlinkConfig> {
+export async function updateConfig(updater: (config: DoomainConfig) => DoomainConfig): Promise<DoomainConfig> {
   const next = updater(await loadConfig())
   await saveConfig(next)
   return next

@@ -159,7 +159,7 @@ export default class ProvidersConnect extends Command {
       if (!flags['no-verify']) {
         spinner = out.json ? undefined : out.spinner()
         spinner?.start(`Verifying ${definition.displayName} credentials`)
-        const zones = await definition.create({credentials, debug: process.env.DMLINK_DEBUG === '1'}).listZones()
+        const zones = await definition.create({credentials, debug: process.env.DOOMAIN_DEBUG === '1'}).listZones()
         domainCount = zones.length
         spinner?.stop(`Verified ${definition.displayName} credentials and found ${domainCount} domain${domainCount === 1 ? '' : 's'}`)
         spinner = undefined

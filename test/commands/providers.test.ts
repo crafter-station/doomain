@@ -12,8 +12,8 @@ describe('providers', () => {
   let dir: string
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'dmlink-providers-'))
-    process.env = {...env, DMLINK_CONFIG_FILE: join(dir, 'config.json')}
+    dir = mkdtempSync(join(tmpdir(), 'doomain-providers-'))
+    process.env = {...env, DOOMAIN_CONFIG_FILE: join(dir, 'config.json')}
     delete process.env.SPACESHIP_API_KEY
     delete process.env.SPACESHIP_API_SECRET
     delete process.env.NAMECHEAP_API_USER

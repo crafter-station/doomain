@@ -16,10 +16,10 @@ export const commandSchemas: CommandSchema[] = [
     name: 'link',
     description: 'Link a Vercel project to a domain and create DNS records.',
     examples: [
-      'dmlink link app.example.com --project my-app --json',
-      'dmlink link --domain app.example.com --project my-app --json',
-      'dmlink link --domain example.com --subdomain app --project my-app --json',
-      'dmlink link --provider spaceship --domain example.com --apex --project my-app --dry-run --json',
+      'doomain link app.example.com --project my-app --json',
+      'doomain link --domain app.example.com --project my-app --json',
+      'doomain link --domain example.com --subdomain app --project my-app --json',
+      'doomain link --provider spaceship --domain example.com --apex --project my-app --dry-run --json',
     ],
     flags: [
       {name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.'},
@@ -38,10 +38,10 @@ export const commandSchemas: CommandSchema[] = [
     name: 'providers connect',
     description: 'Save DNS provider credentials locally after verifying them. Prompts for a provider when omitted.',
     examples: [
-      'dmlink providers connect',
-      'dmlink providers connect spaceship --credential apiKey=key --credential apiSecret=secret --json',
-      'dmlink providers connect namecheap --credential apiUser=user --credential apiKey=key --credential clientIp=127.0.0.1 --json',
-      'dmlink providers connect cloudflare --credential apiToken=token --credential accountId=account_id --json',
+      'doomain providers connect',
+      'doomain providers connect spaceship --credential apiKey=key --credential apiSecret=secret --json',
+      'doomain providers connect namecheap --credential apiUser=user --credential apiKey=key --credential clientIp=127.0.0.1 --json',
+      'doomain providers connect cloudflare --credential apiToken=token --credential accountId=account_id --json',
     ],
     flags: [
       {name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.'},
@@ -54,7 +54,7 @@ export const commandSchemas: CommandSchema[] = [
   {
     name: 'providers add',
     description: 'Alias for providers connect.',
-    examples: ['dmlink providers add', 'dmlink providers add namecheap'],
+    examples: ['doomain providers add', 'doomain providers add namecheap'],
     flags: [
       {name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.'},
       {name: 'credential', type: 'string', description: 'Provider credential as key=value. Can be repeated.'},
@@ -64,7 +64,7 @@ export const commandSchemas: CommandSchema[] = [
   {
     name: 'providers status',
     description: 'Show configured DNS providers and credential health.',
-    examples: ['dmlink providers status', 'dmlink providers status --no-verify --json'],
+    examples: ['doomain providers status', 'doomain providers status --no-verify --json'],
     flags: [
       {name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.'},
       {name: 'no-verify', type: 'boolean', description: 'Skip provider API calls.'},
@@ -73,7 +73,7 @@ export const commandSchemas: CommandSchema[] = [
   {
     name: 'providers disconnect',
     description: 'Remove saved DNS provider credentials locally.',
-    examples: ['dmlink providers disconnect namecheap --json', 'dmlink providers disconnect cloudflare --json'],
+    examples: ['doomain providers disconnect namecheap --json', 'doomain providers disconnect cloudflare --json'],
     flags: [
       {name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.'},
     ],
@@ -81,7 +81,7 @@ export const commandSchemas: CommandSchema[] = [
   {
     name: 'providers verify',
     description: 'Verify saved DNS provider credentials.',
-    examples: ['dmlink providers verify spaceship --json', 'dmlink providers verify namecheap --json'],
+    examples: ['doomain providers verify spaceship --json', 'doomain providers verify namecheap --json'],
     flags: [
       {name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.'},
     ],
@@ -89,7 +89,7 @@ export const commandSchemas: CommandSchema[] = [
   {
     name: 'auth vercel',
     description: 'Save Vercel credentials locally.',
-    examples: ['dmlink auth vercel --token token --team-id team_123 --json', 'dmlink auth vercel'],
+    examples: ['doomain auth vercel --token token --team-id team_123 --json', 'doomain auth vercel'],
     flags: [
       {name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.'},
       {name: 'token', type: 'string', description: 'Vercel API token.'},
@@ -99,7 +99,7 @@ export const commandSchemas: CommandSchema[] = [
   {
     name: 'auth logout vercel',
     description: 'Remove saved Vercel credentials locally.',
-    examples: ['dmlink auth logout vercel --json'],
+    examples: ['doomain auth logout vercel --json'],
     flags: [
       {name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.'},
     ],

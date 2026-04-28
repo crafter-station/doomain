@@ -1,7 +1,7 @@
 import {resolve4, resolveCname, resolveTxt} from 'node:dns/promises'
 
 import {loadConfig} from './config.js'
-import {DmlinkError} from './errors.js'
+import {DoomainError} from './errors.js'
 import {detectLocalVercelProject} from './local-vercel.js'
 import {createProvider, getProviderDefinition, listProviderDefinitions} from './providers/registry.js'
 import {isProviderConfigured} from './providers/status.js'
@@ -76,8 +76,8 @@ function recordFqdn(record: DnsRecordInput, zoneDomain: string): string {
 
 async function resolveConfiguredDomain(domain?: string): Promise<string> {
   const config = await loadConfig()
-  const resolved = domain ?? process.env.DMLINK_DOMAIN ?? config.defaults?.domain
-  if (!resolved) throw new DmlinkError('MISSING_ARGUMENT', 'Domain is required. Use --domain or set a default domain.')
+  const resolved = domain ?? process.env.DOOMAIN_DOMAIN ?? config.defaults?.domain
+  if (!resolved) throw new DoomainError('MISSING_ARGUMENT', 'Domain is required. Use --domain or set a default domain.')
   return resolved
 }
 
@@ -87,7 +87,7 @@ function resolveProject(project?: string): {project: string; localProjectDetecte
   const localProject = detectLocalVercelProject()
   if (localProject) return {project: localProject.projectId, localProjectDetected: true}
 
-  throw new DmlinkError(
+  throw new DoomainError(
     'VERCEL_PROJECT_NOT_LINKED',
     'No linked Vercel project found. Run inside a Vercel project or pass --project.',
   )
@@ -96,7 +96,7 @@ function resolveProject(project?: string): {project: string; localProjectDetecte
 async function resolveZone(provider: DnsProvider, zoneDomain: string): Promise<DnsZone> {
   const zone = await provider.getZone(zoneDomain)
   if (!zone) {
-    throw new DmlinkError('PROVIDER_ZONE_NOT_FOUND', `${provider.name} does not have a DNS zone for ${zoneDomain}.`)
+    throw new DoomainError('PROVIDER_ZONE_NOT_FOUND', `${provider.name} does not have a DNS zone for ${zoneDomain}.`)
   }
 
   return zone
@@ -133,7 +133,7 @@ interface ResolvedTarget {
 
 function resolveRequestedDomain(opts: {apex?: boolean; domain: string; subdomain?: string}): RequestedDomain {
   if (opts.apex && opts.subdomain) {
-    throw new DmlinkError('INVALID_INPUT', 'Use either --apex or --subdomain, not both.')
+    throw new DoomainError('INVALID_INPUT', 'Use either --apex or --subdomain, not both.')
   }
 
   const domain = normalizeDomain(opts.domain)
@@ -196,7 +196,7 @@ async function loadConfiguredProviderZones(providerId?: string): Promise<{
   const config = await loadConfig()
   const definitions = listProviderDefinitions().filter((definition) => isProviderConfigured(definition, config))
   if (definitions.length === 0) {
-    throw new DmlinkError('CONFIG_NOT_FOUND', 'No DNS provider is configured. Run `dmlink providers connect` first.')
+    throw new DoomainError('CONFIG_NOT_FOUND', 'No DNS provider is configured. Run `doomain providers connect` first.')
   }
 
   const results = await Promise.all(
@@ -239,7 +239,7 @@ async function resolveProviderTarget(input: LinkDomainInput): Promise<ResolvedTa
     const providerMessage = input.provider
       ? `${getProviderDefinition(input.provider).displayName} does not have a matching DNS zone for ${requested.fullDomain}.`
       : `No configured DNS provider has a matching DNS zone for ${requested.fullDomain}.`
-    throw new DmlinkError('PROVIDER_ZONE_NOT_FOUND', providerMessage, {domain: requested.fullDomain, providers: zones.searched})
+    throw new DoomainError('PROVIDER_ZONE_NOT_FOUND', providerMessage, {domain: requested.fullDomain, providers: zones.searched})
   }
 
   const bestLength = matches[0].zone.name.length
@@ -250,7 +250,7 @@ async function resolveProviderTarget(input: LinkDomainInput): Promise<ResolvedTa
   )
 
   if (uniqueBestMatches.length > 1) {
-    throw new DmlinkError(
+    throw new DoomainError(
       'PROVIDER_ZONE_AMBIGUOUS',
       `Multiple DNS providers have a matching DNS zone for ${requested.fullDomain}. Pass --provider to choose one.`,
       {candidates: candidateDetails(uniqueBestMatches), domain: requested.fullDomain},
@@ -415,7 +415,7 @@ async function waitForVercelDomainReady(
   }
 
   if (lastError) {
-    throw new DmlinkError(
+    throw new DoomainError(
       'DOMAIN_VERIFY_FAILED',
       `Vercel did not verify ${opts.domain} within ${timeoutSeconds} seconds. Last Vercel response: ${errorMessage(lastError)}`,
     )

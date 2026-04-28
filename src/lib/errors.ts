@@ -1,4 +1,4 @@
-export type DmlinkErrorCode =
+export type DoomainErrorCode =
   | 'CONFIG_NOT_FOUND'
   | 'DOMAIN_LINK_FAILED'
   | 'DOMAIN_VERIFY_FAILED'
@@ -17,20 +17,20 @@ export type DmlinkErrorCode =
   | 'PROJECT_NOT_FOUND'
   | 'VERCEL_PROJECT_NOT_LINKED'
 
-export class DmlinkError extends Error {
-  readonly code: DmlinkErrorCode
+export class DoomainError extends Error {
+  readonly code: DoomainErrorCode
   readonly details?: unknown
 
-  constructor(code: DmlinkErrorCode, message: string, details?: unknown) {
+  constructor(code: DoomainErrorCode, message: string, details?: unknown) {
     super(message)
-    this.name = 'DmlinkError'
+    this.name = 'DoomainError'
     this.code = code
     this.details = details
   }
 }
 
-export function toDmlinkError(error: unknown, fallbackCode: DmlinkErrorCode): DmlinkError {
-  if (error instanceof DmlinkError) return error
-  if (error instanceof Error) return new DmlinkError(fallbackCode, error.message)
-  return new DmlinkError(fallbackCode, String(error))
+export function toDoomainError(error: unknown, fallbackCode: DoomainErrorCode): DoomainError {
+  if (error instanceof DoomainError) return error
+  if (error instanceof Error) return new DoomainError(fallbackCode, error.message)
+  return new DoomainError(fallbackCode, String(error))
 }

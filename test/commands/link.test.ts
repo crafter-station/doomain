@@ -5,7 +5,7 @@ import {join} from 'node:path'
 import {runCommand} from '@oclif/test'
 import {expect} from 'chai'
 
-import {DmlinkError} from '../../src/lib/errors.js'
+import {DoomainError} from '../../src/lib/errors.js'
 import {linkDomain, verificationRecords} from '../../src/lib/link-domain.js'
 
 function jsonResponse(body: unknown): Response {
@@ -38,13 +38,13 @@ describe('link', () => {
   let dir: string
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'dmlink-link-'))
-    process.env = {...env, DMLINK_CONFIG_FILE: join(dir, 'config.json')}
+    dir = mkdtempSync(join(tmpdir(), 'doomain-link-'))
+    process.env = {...env, DOOMAIN_CONFIG_FILE: join(dir, 'config.json')}
     for (const key of [
       'CLOUDFLARE_ACCOUNT_ID',
       'CLOUDFLARE_API_TOKEN',
-      'DMLINK_DOMAIN',
-      'DMLINK_PROVIDER',
+      'DOOMAIN_DOMAIN',
+      'DOOMAIN_PROVIDER',
       'NAMECHEAP_API_KEY',
       'NAMECHEAP_API_USER',
       'NAMECHEAP_CLIENT_IP',
@@ -210,9 +210,9 @@ describe('link', () => {
       error = error_
     }
 
-    expect(error).to.be.instanceOf(DmlinkError)
-    expect((error as DmlinkError).code).to.equal('PROVIDER_ZONE_AMBIGUOUS')
-    expect((error as DmlinkError).details).to.deep.equal({
+    expect(error).to.be.instanceOf(DoomainError)
+    expect((error as DoomainError).code).to.equal('PROVIDER_ZONE_AMBIGUOUS')
+    expect((error as DoomainError).details).to.deep.equal({
       candidates: [
         {provider: 'namecheap', providerName: 'Namecheap', zoneDomain: 'example.com'},
         {provider: 'cloudflare', providerName: 'Cloudflare', zoneDomain: 'example.com'},

@@ -21,7 +21,7 @@ export default class DomainsList extends Command {
 
     try {
       const config = await loadConfig()
-      const provider = await createProvider(flags.provider ?? process.env.DMLINK_PROVIDER ?? config.defaults?.provider ?? 'spaceship')
+      const provider = await createProvider(flags.provider ?? process.env.DOOMAIN_PROVIDER ?? config.defaults?.provider ?? 'spaceship')
       const zones = flags.domain ? [{id: normalizeDomain(flags.domain), name: normalizeDomain(flags.domain)}] : await provider.listZones()
       const results = []
 

@@ -8,7 +8,7 @@ import {detectLocalVercelProject} from '../../src/lib/local-vercel.js'
 
 describe('detectLocalVercelProject', () => {
   it('finds .vercel/project.json from nested directories', () => {
-    const root = mkdtempSync(join(tmpdir(), 'dmlink-'))
+    const root = mkdtempSync(join(tmpdir(), 'doomain-'))
 
     try {
       mkdirSync(join(root, '.vercel'), {recursive: true})

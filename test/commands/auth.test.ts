@@ -12,8 +12,8 @@ describe('auth', () => {
   let dir: string
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'dmlink-auth-'))
-    process.env = {...env, DMLINK_CONFIG_FILE: join(dir, 'config.json')}
+    dir = mkdtempSync(join(tmpdir(), 'doomain-auth-'))
+    process.env = {...env, DOOMAIN_CONFIG_FILE: join(dir, 'config.json')}
     delete process.env.VERCEL_TOKEN
     delete process.env.VERCEL_TEAM_ID
   })
