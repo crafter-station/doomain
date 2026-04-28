@@ -465,7 +465,7 @@ export async function linkDomain(input: LinkDomainInput): Promise<LinkDomainResu
   reportProgress(input, 'dns:resolve-zone', `Finding ${provider.name} DNS zone`)
   const zone = await resolveZone(provider, plan.zoneDomain)
   reportProgress(input, 'vercel:add-domain', 'Adding domain to Vercel')
-  const addResult = await vercel.addDomainToProject(plan.project, plan.domain)
+  const addResult = await vercel.addDomainToProject(plan.project, plan.domain, {force: input.force})
   reportProgress(input, 'vercel:get-target', 'Reading Vercel DNS target')
   const cname = plan.isApex ? undefined : await vercel.getRecommendedCname(plan.domain)
   reportProgress(input, 'vercel:get-domain', 'Reading Vercel verification records')

@@ -7,9 +7,14 @@ import {expect} from 'chai'
 
 import {DoomainError} from '../../src/lib/errors.js'
 import {linkDomain, verificationRecords} from '../../src/lib/link-domain.js'
+import {createVercelClient} from '../../src/lib/vercel.js'
 
 function jsonResponse(body: unknown): Response {
   return {json: async () => body, ok: true, status: 200} as Response
+}
+
+function jsonErrorResponse(status: number, body: unknown): Response {
+  return {json: async () => body, ok: false, status} as Response
 }
 
 function textResponse(body: string): Response {
@@ -62,6 +67,15 @@ describe('link', () => {
     globalThis.fetch = originalFetch
     process.env = {...env}
     rmSync(dir, {force: true, recursive: true})
+  })
+
+  it('requires an explicit domain for the link command', async () => {
+    const {stdout} = await runCommand('link --json')
+    const result = JSON.parse(stdout) as {error: {code: string; message: string}; ok: boolean}
+
+    expect(result.ok).to.equal(false)
+    expect(result.error.code).to.equal('MISSING_ARGUMENT')
+    expect(result.error.message).to.include('doomain link <domain>')
   })
 
   it('prints a dry-run JSON plan for an explicit provider', async () => {
@@ -258,7 +272,7 @@ describe('link', () => {
       requests.push(`${method} ${url.pathname}`)
 
       if (url.hostname === 'api.vercel.com') {
-        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains') return jsonResponse({name: 'app.example.com'})
+        if (method === 'POST' && url.pathname === '/projects/prj_123/alias') return jsonResponse([{domain: 'app.example.com'}])
         if (method === 'GET' && url.pathname === '/v6/domains/app.example.com/config') {
           return jsonResponse({recommendedCNAME: [{rank: 1, value: 'cname.vercel-dns.com.'}]})
         }
@@ -313,5 +327,105 @@ describe('link', () => {
     expect(result.vercel.verified).to.equal(true)
     expect(requests).to.include('POST /v9/projects/prj_123/domains/app.example.com/verify')
     expect(dnsBodies).to.deep.include({content: 'vc-domain-verify=app.example.com,token', name: '_vercel.example.com', ttl: 3600, type: 'TXT'})
+  })
+
+  it('does not treat a Vercel alias conflict as already added unless it is on the target project', async () => {
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input))
+      const method = init?.method ?? 'GET'
+
+      if (url.hostname === 'api.vercel.com') {
+        if (method === 'POST' && url.pathname === '/projects/prj_123/alias') {
+          return jsonErrorResponse(409, {error: {code: 'ALIAS_DOMAIN_EXIST', message: 'Domain is already assigned.'}})
+        }
+
+        if (method === 'GET' && url.pathname === '/v9/projects/prj_123/domains/app.example.com') {
+          return jsonErrorResponse(404, {error: {code: 'not_found', message: 'Project Domain not found.'}})
+        }
+      }
+
+      throw new Error(`Unexpected request: ${method} ${url.href}`)
+    }) as typeof fetch
+
+    let error: unknown
+    try {
+      await createVercelClient({token: 'vercel_token'}).addDomainToProject('prj_123', 'app.example.com')
+    } catch (error_) {
+      error = error_
+    }
+
+    expect(error).to.be.instanceOf(DoomainError)
+    expect((error as DoomainError).code).to.equal('DOMAIN_ALREADY_ASSIGNED')
+    expect((error as DoomainError).message).to.include('already assigned to another project')
+  })
+
+  it('treats a Vercel alias conflict as already added when it is on the target project', async () => {
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input))
+      const method = init?.method ?? 'GET'
+
+      if (url.hostname === 'api.vercel.com') {
+        if (method === 'POST' && url.pathname === '/projects/prj_123/alias') {
+          return jsonErrorResponse(409, {error: {code: 'ALIAS_DOMAIN_EXIST', message: 'Domain is already assigned.'}})
+        }
+
+        if (method === 'GET' && url.pathname === '/v9/projects/prj_123/domains/app.example.com') {
+          return jsonResponse({name: 'app.example.com', verified: true})
+        }
+      }
+
+      throw new Error(`Unexpected request: ${method} ${url.href}`)
+    }) as typeof fetch
+
+    const result = await createVercelClient({token: 'vercel_token'}).addDomainToProject('prj_123', 'app.example.com')
+
+    expect(result.alreadyAdded).to.equal(true)
+    expect(result.raw).to.deep.equal({name: 'app.example.com', verified: true})
+  })
+
+  it('moves a Vercel alias from another project when force is enabled', async () => {
+    let addAttempts = 0
+    const requests: string[] = []
+
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input))
+      const method = init?.method ?? 'GET'
+      requests.push(`${method} ${url.pathname}`)
+
+      if (url.hostname === 'api.vercel.com') {
+        if (method === 'POST' && url.pathname === '/projects/prj_new/alias') {
+          addAttempts += 1
+          return addAttempts === 1
+            ? jsonErrorResponse(409, {error: {code: 'ALIAS_DOMAIN_EXIST', message: 'Domain is already assigned.'}})
+            : jsonResponse([{domain: 'app.example.com'}])
+        }
+
+        if (method === 'GET' && url.pathname === '/v9/projects/prj_new/domains/app.example.com') {
+          return jsonErrorResponse(404, {error: {code: 'not_found', message: 'Project Domain not found.'}})
+        }
+
+        if (method === 'GET' && url.pathname === '/v9/projects') {
+          return jsonResponse({projects: [{id: 'prj_old', name: 'old-project'}]})
+        }
+
+        if (method === 'GET' && url.pathname === '/v9/projects/prj_old/domains') {
+          return jsonResponse({domains: [{name: 'app.example.com', projectId: 'prj_old'}]})
+        }
+
+        if (method === 'DELETE' && url.pathname === '/projects/prj_old/alias' && url.searchParams.get('domain') === 'app.example.com') {
+          return jsonResponse({})
+        }
+      }
+
+      throw new Error(`Unexpected request: ${method} ${url.href}`)
+    }) as typeof fetch
+
+    const result = await createVercelClient({token: 'vercel_token'}).addDomainToProject('prj_new', 'app.example.com', {
+      force: true,
+    })
+
+    expect(result.alreadyAdded).to.equal(false)
+    expect(result.raw).to.deep.equal({domain: 'app.example.com'})
+    expect(requests).to.include('DELETE /projects/prj_old/alias')
   })
 })

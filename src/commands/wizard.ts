@@ -159,8 +159,9 @@ export default class Wizard extends Command {
       p.intro('Doomain')
       const config = await loadConfig()
       const providerDefinitions = listProviderDefinitions()
+      const localProject = detectLocalVercelProject()
       let vercelToken = process.env.VERCEL_TOKEN || config.vercel?.token
-      let vercelTeamId = process.env.VERCEL_TEAM_ID || config.vercel?.teamId
+      let vercelTeamId = process.env.VERCEL_TEAM_ID || localProject?.orgId || config.vercel?.teamId
       const defaultProvider = process.env.DOOMAIN_PROVIDER || config.defaults?.provider
       const defaultDomain = process.env.DOOMAIN_DOMAIN || config.defaults?.domain
 
@@ -169,7 +170,6 @@ export default class Wizard extends Command {
         if (!vercelToken) return
       }
 
-      const localProject = detectLocalVercelProject()
       const teamSpinner = p.spinner()
       let teams: VercelTeam[] = []
 
@@ -199,35 +199,34 @@ export default class Wizard extends Command {
       const teamDisplay = vercelTeamId ? teamLabel(selectedTeam ?? {id: vercelTeamId, name: null, role: null, slug: vercelTeamId}) : 'Personal account'
       p.log.success(`Vercel account ready: ${teamDisplay}`)
 
-      const localProjectMatchesTeam = localProject && (vercelTeamId ? localProject.orgId === vercelTeamId : !localProject.orgId)
-      let project = localProjectMatchesTeam ? localProject.projectId : undefined
-      let projectDisplay = project ? projectLabel({id: project}) : ''
+      const projectSpinner = p.spinner()
+      activeSpinner = projectSpinner
+      projectSpinner.start('Loading Vercel projects')
+      const projects = await createVercelClient({token: vercelToken, teamId: vercelTeamId}).listProjects()
+      projectSpinner.stop(`Loaded ${projects.length} projects`)
+      activeSpinner = undefined
 
-      if (project) {
-        p.log.info(`Using linked Vercel project ${projectDisplay}.`)
-      } else {
-        const spinner = p.spinner()
-        activeSpinner = spinner
-        spinner.start('Loading Vercel projects')
-        const projects = await createVercelClient({token: vercelToken, teamId: vercelTeamId}).listProjects()
-        spinner.stop(`Loaded ${projects.length} projects`)
-        activeSpinner = undefined
-
-        if (projects.length === 0) {
-          throw new DoomainError('PROJECT_NOT_FOUND', `No Vercel projects found in ${teamDisplay}.`)
-        }
-
-        const selected = await p.autocomplete({
-          message: 'Select Vercel project',
-          placeholder: 'Type to filter projects...',
-          maxItems: 10,
-          options: projects.map((item) => ({label: projectLabel(item), value: item.id, hint: item.framework ?? undefined})),
-        })
-        const resolved = cancelIfNeeded(selected)
-        if (resolved === null) return
-        project = resolved
-        projectDisplay = projectLabel(projects.find((item) => item.id === project) ?? {id: project})
+      if (projects.length === 0) {
+        throw new DoomainError('PROJECT_NOT_FOUND', `No Vercel projects found in ${teamDisplay}.`)
       }
+
+      const localProjectMatchesTeam = localProject && (vercelTeamId ? localProject.orgId === vercelTeamId : !localProject.orgId)
+      const initialProject = localProjectMatchesTeam && projects.some((item) => item.id === localProject.projectId) ? localProject.projectId : undefined
+      const selected = await p.autocomplete({
+        message: 'Select Vercel project',
+        placeholder: 'Type to filter projects...',
+        maxItems: 10,
+        initialValue: initialProject,
+        options: projects.map((item) => ({
+          label: projectLabel(item),
+          value: item.id,
+          hint: item.id === initialProject ? 'linked in .vercel' : (item.framework ?? undefined),
+        })),
+      })
+      const resolved = cancelIfNeeded(selected)
+      if (resolved === null) return
+      const project = resolved
+      const projectDisplay = projectLabel(projects.find((item) => item.id === project) ?? {id: project})
 
       p.log.success(`Vercel ready: ${projectDisplay}`)
 

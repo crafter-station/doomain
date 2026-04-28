@@ -28,7 +28,18 @@ interface VercelApiErrorBody {
   error?: {
     code?: string
     message?: string
+    project?: {
+      id?: string
+      name?: string
+    }
   }
+}
+
+type VercelAliasResponse = Array<Record<string, unknown>> | Record<string, unknown>
+
+interface VercelProjectDomainOwner {
+  domain: Record<string, unknown> & {name?: string; projectId?: string}
+  project: VercelProject
 }
 
 interface VercelProjectsResponse {
@@ -38,6 +49,10 @@ interface VercelProjectsResponse {
     prev?: number | string | null
   }
   projects: Array<{id: string; name: string; framework?: string | null; updatedAt?: number | null}>
+}
+
+interface VercelProjectDomainsResponse {
+  domains?: Array<Record<string, unknown> & {name?: string; projectId?: string}>
 }
 
 interface VercelTeamsResponse {
@@ -71,11 +86,26 @@ function apiErrorMessage(status: number, body?: VercelApiErrorBody): string {
   return body?.error?.message ?? `Vercel API error (${status}).`
 }
 
-function isAlreadyAddedError(error: unknown): boolean {
+function isDomainConflictError(error: unknown): boolean {
   if (!(error instanceof DoomainError)) return false
   const details = error.details as VercelApiErrorBody | undefined
   const text = `${error.message} ${details?.error?.code ?? ''}`.toLowerCase()
-  return text.includes('already') || text.includes('conflict') || text.includes('domain_already')
+  return (
+    text.includes('already') ||
+    text.includes('conflict') ||
+    text.includes('domain_already') ||
+    text.includes('already assigned') ||
+    text.includes('already in use')
+  )
+}
+
+function isSameDomain(value: unknown, domain: string): boolean {
+  return typeof value === 'string' && value.toLowerCase() === domain.toLowerCase()
+}
+
+function findAliasTarget(raw: unknown, domain: string): unknown {
+  const targets = Array.isArray(raw) ? raw : [raw]
+  return targets.find((target) => target && typeof target === 'object' && isSameDomain((target as Record<string, unknown>).domain, domain))
 }
 
 export function createVercelClient(config: VercelConfig) {
@@ -160,17 +190,54 @@ export function createVercelClient(config: VercelConfig) {
       return [...projectsById.values()].sort((a, b) => a.name.localeCompare(b.name))
     },
 
-    async addDomainToProject(project: string, domain: string): Promise<{alreadyAdded: boolean; raw?: unknown}> {
+    async addDomainToProject(project: string, domain: string, opts: {force?: boolean} = {}): Promise<{alreadyAdded: boolean; raw?: unknown}> {
       try {
-        const raw = await request(`/v10/projects/${encodeURIComponent(project)}/domains`, {
+        const raw = await request<VercelAliasResponse>(`/projects/${encodeURIComponent(project)}/alias`, {
           method: 'POST',
-          body: JSON.stringify({name: domain}),
+          body: JSON.stringify({domain, target: 'PRODUCTION'}),
         })
-        return {alreadyAdded: false, raw}
+        const aliasTarget = findAliasTarget(raw, domain)
+        if (!aliasTarget) {
+          throw new DoomainError(
+            'DOMAIN_LINK_FAILED',
+            `Vercel did not return ${domain} after adding it to project ${project}.`,
+            raw,
+          )
+        }
+
+        return {alreadyAdded: false, raw: aliasTarget}
       } catch (error) {
-        if (isAlreadyAddedError(error)) return {alreadyAdded: true, raw: error}
+        if (isDomainConflictError(error)) {
+          const projectDomain = await this.getProjectDomain(project, domain).catch(() => undefined)
+          if (projectDomain) return {alreadyAdded: true, raw: projectDomain}
+
+          if (opts.force) {
+            const owner = await this.findProjectDomainOwner(domain)
+            if (owner && owner.project.id !== project) {
+              await this.removeDomainFromProject(owner.project.id, domain)
+              return this.addDomainToProject(project, domain)
+            }
+          }
+
+          throw new DoomainError(
+            'DOMAIN_ALREADY_ASSIGNED',
+            `Vercel reports ${domain} is already assigned to another project. Re-run with --force if you intend to move it to ${project}.`,
+            error instanceof DoomainError ? error.details : undefined,
+          )
+        }
+
         throw error
       }
+    },
+
+    async findProjectDomainOwner(domain: string): Promise<VercelProjectDomainOwner | undefined> {
+      for (const project of await this.listProjects()) {
+        const domains = await this.listProjectDomains(project.id).catch(() => [])
+        const match = domains.find((item) => isSameDomain(item.name, domain))
+        if (match) return {domain: match, project}
+      }
+
+      return undefined
     },
 
     async getDomainConfig(domain: string): Promise<Record<string, unknown>> {
@@ -190,6 +257,15 @@ export function createVercelClient(config: VercelConfig) {
       return request<Record<string, unknown>>(
         `/v9/projects/${encodeURIComponent(project)}/domains/${encodeURIComponent(domain)}`,
       )
+    },
+
+    async listProjectDomains(project: string): Promise<Array<Record<string, unknown> & {name?: string; projectId?: string}>> {
+      const result = await request<VercelProjectDomainsResponse>(`/v9/projects/${encodeURIComponent(project)}/domains`)
+      return result.domains ?? []
+    },
+
+    async removeDomainFromProject(project: string, domain: string): Promise<void> {
+      await request(`/projects/${encodeURIComponent(project)}/alias?domain=${encodeURIComponent(domain)}`, {method: 'DELETE'})
     },
 
     async verifyProjectDomain(project: string, domain: string): Promise<Record<string, unknown>> {

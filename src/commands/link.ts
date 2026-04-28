@@ -1,5 +1,6 @@
 import {Args, Command, Flags} from '@oclif/core'
 
+import {DoomainError} from '../lib/errors.js'
 import {apexFlag, domainFlag, jsonFlag, projectFlag, providerFlag, subdomainFlag} from '../lib/flags.js'
 import {linkDomain} from '../lib/link-domain.js'
 import {createOutput, outputError} from '../lib/output.js'
@@ -22,7 +23,7 @@ export default class Link extends Command {
     apex: apexFlag,
     domain: domainFlag,
     'dry-run': Flags.boolean({description: 'Preview changes without writing to Vercel or DNS.'}),
-    force: Flags.boolean({description: 'Overwrite conflicting DNS records.'}),
+    force: Flags.boolean({description: 'Move existing Vercel aliases and overwrite conflicting DNS records.'}),
     json: jsonFlag,
     project: projectFlag,
     provider: providerFlag,
@@ -38,6 +39,10 @@ export default class Link extends Command {
     const domain = flags.domain ?? args.domain
 
     try {
+      if (!domain) {
+        throw new DoomainError('MISSING_ARGUMENT', 'Domain is required. Use `doomain link <domain>` or pass --domain.')
+      }
+
       if (flags['dry-run']) {
         const result = await linkDomain({...flags, domain, dryRun: true, timeoutSeconds: flags.timeout})
         out.result(result)
