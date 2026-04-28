@@ -1,7 +1,7 @@
 {
   "name": "doomain",
   "description": "Link your vercel project and domain in seconds",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": "Crafter Station",
   "packageManager": "bun@1.3.13",
   "bin": {
