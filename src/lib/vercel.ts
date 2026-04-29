@@ -36,7 +36,7 @@ interface VercelApiErrorBody {
   }
 }
 
-type VercelAliasResponse = Array<Record<string, unknown>> | Record<string, unknown>
+type VercelAddDomainResponse = Array<Record<string, unknown>> | Record<string, unknown>
 
 interface VercelProjectDomainOwner {
   domain: Record<string, unknown> & {name?: string; projectId?: string}
@@ -113,9 +113,14 @@ function isSameDomain(value: unknown, domain: string): boolean {
   return typeof value === 'string' && value.toLowerCase() === domain.toLowerCase()
 }
 
-function findAliasTarget(raw: unknown, domain: string): unknown {
+function findProjectDomainTarget(raw: unknown, domain: string): unknown {
   const targets = Array.isArray(raw) ? raw : [raw]
-  return targets.find((target) => target && typeof target === 'object' && isSameDomain((target as Record<string, unknown>).domain, domain))
+  return targets.find(
+    (target) =>
+      target &&
+      typeof target === 'object' &&
+      (isSameDomain((target as Record<string, unknown>).domain, domain) || isSameDomain((target as Record<string, unknown>).name, domain)),
+  )
 }
 
 export function createVercelClient(config: VercelConfig) {
@@ -131,7 +136,7 @@ export function createVercelClient(config: VercelConfig) {
 
     if (!response.ok) {
       const body = (await response.json().catch(() => undefined)) as VercelApiErrorBody | undefined
-      if (response.status === 401 || response.status === 403) {
+      if (response.status === 401) {
         throw new DoomainError('VERCEL_AUTH_FAILED', vercelAuthErrorMessage(body), body)
       }
 
@@ -206,12 +211,12 @@ export function createVercelClient(config: VercelConfig) {
 
     async addDomainToProject(project: string, domain: string, opts: {force?: boolean} = {}): Promise<{alreadyAdded: boolean; raw?: unknown}> {
       try {
-        const raw = await request<VercelAliasResponse>(`/projects/${encodeURIComponent(project)}/alias`, {
+        const raw = await request<VercelAddDomainResponse>(`/v10/projects/${encodeURIComponent(project)}/domains`, {
           method: 'POST',
-          body: JSON.stringify({domain, target: 'PRODUCTION'}),
+          body: JSON.stringify({name: domain}),
         })
-        const aliasTarget = findAliasTarget(raw, domain)
-        if (!aliasTarget) {
+        const projectDomain = findProjectDomainTarget(raw, domain)
+        if (!projectDomain) {
           throw new DoomainError(
             'DOMAIN_LINK_FAILED',
             `Vercel did not return ${domain} after adding it to project ${project}.`,
@@ -219,7 +224,7 @@ export function createVercelClient(config: VercelConfig) {
           )
         }
 
-        return {alreadyAdded: false, raw: aliasTarget}
+        return {alreadyAdded: false, raw: projectDomain}
       } catch (error) {
         if (isDomainConflictError(error)) {
           const projectDomain = await this.getProjectDomain(project, domain).catch(() => undefined)
@@ -279,7 +284,7 @@ export function createVercelClient(config: VercelConfig) {
     },
 
     async removeDomainFromProject(project: string, domain: string): Promise<void> {
-      await request(`/projects/${encodeURIComponent(project)}/alias?domain=${encodeURIComponent(domain)}`, {method: 'DELETE'})
+      await request(`/v9/projects/${encodeURIComponent(project)}/domains/${encodeURIComponent(domain)}`, {method: 'DELETE'})
     },
 
     async verifyProjectDomain(project: string, domain: string): Promise<Record<string, unknown>> {

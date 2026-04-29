@@ -23,7 +23,7 @@ export default class Link extends Command {
     apex: apexFlag,
     domain: domainFlag,
     'dry-run': Flags.boolean({description: 'Preview changes without writing to Vercel or DNS.'}),
-    force: Flags.boolean({description: 'Move existing Vercel aliases and overwrite conflicting DNS records.'}),
+    force: Flags.boolean({description: 'Move existing Vercel project domains and overwrite conflicting DNS records.'}),
     json: jsonFlag,
     project: projectFlag,
     provider: providerFlag,

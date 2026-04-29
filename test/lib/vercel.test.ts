@@ -86,4 +86,17 @@ describe('vercel client', () => {
       expect((error as Error).message).to.include('Run `vercel login` again')
     }
   })
+
+  it('does not report domain permission errors as invalid tokens', async () => {
+    globalThis.fetch = (async () => errorResponse(403, {error: {message: 'Not authorized to use app.example.com'}})) as typeof fetch
+
+    try {
+      await createVercelClient({token: 'vercel_token'}).addDomainToProject('prj_123', 'app.example.com')
+      throw new Error('Expected addDomainToProject to fail')
+    } catch (error) {
+      expect(error).to.be.instanceOf(DoomainError)
+      expect((error as DoomainError).code).to.equal('DOMAIN_LINK_FAILED')
+      expect((error as Error).message).to.equal('Not authorized to use app.example.com')
+    }
+  })
 })

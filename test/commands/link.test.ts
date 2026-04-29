@@ -263,6 +263,7 @@ describe('link', () => {
     const dnsBodies: Array<Record<string, unknown>> = []
     const requests: string[] = []
     process.env.VERCEL_TOKEN = 'vercel_token'
+    process.env.VERCEL_TEAM_ID = 'team_123'
     process.env.CLOUDFLARE_API_TOKEN = 'cloudflare_token'
     process.env.CLOUDFLARE_ACCOUNT_ID = 'account_123'
 
@@ -272,12 +273,9 @@ describe('link', () => {
       requests.push(`${method} ${url.pathname}`)
 
       if (url.hostname === 'api.vercel.com') {
-        if (method === 'POST' && url.pathname === '/projects/prj_123/alias') return jsonResponse([{domain: 'app.example.com'}])
-        if (method === 'GET' && url.pathname === '/v6/domains/app.example.com/config') {
-          return jsonResponse({misconfigured: false, recommendedCNAME: [{rank: 1, value: 'cname.vercel-dns.com.'}]})
-        }
-
-        if (method === 'GET' && url.pathname === '/v9/projects/prj_123/domains/app.example.com') {
+        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains') {
+          expect(url.searchParams.get('teamId')).to.equal('team_123')
+          expect(JSON.parse(String(init?.body))).to.deep.equal({name: 'app.example.com'})
           return jsonResponse({
             name: 'app.example.com',
             verified: false,
@@ -288,6 +286,16 @@ describe('link', () => {
                 value: 'vc-domain-verify=app.example.com,token',
               },
             ],
+          })
+        }
+        if (method === 'GET' && url.pathname === '/v6/domains/app.example.com/config') {
+          return jsonResponse({misconfigured: false, recommendedCNAME: [{rank: 1, value: 'cname.vercel-dns.com.'}]})
+        }
+
+        if (method === 'GET' && url.pathname === '/v9/projects/prj_123/domains/app.example.com') {
+          return jsonResponse({
+            name: 'app.example.com',
+            verified: false,
           })
         }
 
@@ -325,6 +333,7 @@ describe('link', () => {
     })
 
     expect(result.vercel.verified).to.equal(true)
+    expect(requests).to.include('POST /v10/projects/prj_123/domains')
     expect(requests).to.include('POST /v9/projects/prj_123/domains/app.example.com/verify')
     expect(dnsBodies).to.deep.include({content: 'vc-domain-verify=app.example.com,token', name: '_vercel.example.com', ttl: 3600, type: 'TXT'})
   })
@@ -339,7 +348,7 @@ describe('link', () => {
       const method = init?.method ?? 'GET'
 
       if (url.hostname === 'api.vercel.com') {
-        if (method === 'POST' && url.pathname === '/projects/prj_123/alias') return jsonResponse([{domain: 'app.example.com'}])
+        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains') return jsonResponse({name: 'app.example.com', verified: true})
         if (method === 'GET' && url.pathname === '/v6/domains/app.example.com/config') return jsonResponse({misconfigured: false})
         if (method === 'GET' && url.pathname === '/v9/projects/prj_123/domains/app.example.com') {
           return jsonResponse({name: 'app.example.com', verified: false})
@@ -376,7 +385,7 @@ describe('link', () => {
       const method = init?.method ?? 'GET'
 
       if (url.hostname === 'api.vercel.com') {
-        if (method === 'POST' && url.pathname === '/projects/prj_123/alias') return jsonResponse([{domain: 'app.example.com'}])
+        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains') return jsonResponse({name: 'app.example.com', verified: true})
         if (method === 'GET' && url.pathname === '/v6/domains/app.example.com/config') {
           return jsonResponse({conflicts: [{type: 'CNAME'}], misconfigured: true})
         }
@@ -424,7 +433,7 @@ describe('link', () => {
       const method = init?.method ?? 'GET'
 
       if (url.hostname === 'api.vercel.com') {
-        if (method === 'POST' && url.pathname === '/projects/prj_123/alias') return jsonResponse([{domain: 'app.example.com'}])
+        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains') return jsonResponse({name: 'app.example.com', verified: true})
         if (method === 'GET' && url.pathname === '/v6/domains/app.example.com/config') return jsonResponse({misconfigured: false})
         if (method === 'GET' && url.pathname === '/v9/projects/prj_123/domains/app.example.com') {
           return jsonResponse({name: 'app.example.com', verified: false})
@@ -462,13 +471,13 @@ describe('link', () => {
     expect(dnsBodies).to.deep.include({content: 'vc-domain-verify=app.example.com,late-token', name: '_vercel.example.com', ttl: 3600, type: 'TXT'})
   })
 
-  it('does not treat a Vercel alias conflict as already added unless it is on the target project', async () => {
+  it('does not treat a Vercel domain conflict as already added unless it is on the target project', async () => {
     globalThis.fetch = (async (input, init) => {
       const url = new URL(String(input))
       const method = init?.method ?? 'GET'
 
       if (url.hostname === 'api.vercel.com') {
-        if (method === 'POST' && url.pathname === '/projects/prj_123/alias') {
+        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains') {
           return jsonErrorResponse(409, {error: {code: 'ALIAS_DOMAIN_EXIST', message: 'Domain is already assigned.'}})
         }
 
@@ -492,13 +501,13 @@ describe('link', () => {
     expect((error as DoomainError).message).to.include('already assigned to another project')
   })
 
-  it('treats a Vercel alias conflict as already added when it is on the target project', async () => {
+  it('treats a Vercel domain conflict as already added when it is on the target project', async () => {
     globalThis.fetch = (async (input, init) => {
       const url = new URL(String(input))
       const method = init?.method ?? 'GET'
 
       if (url.hostname === 'api.vercel.com') {
-        if (method === 'POST' && url.pathname === '/projects/prj_123/alias') {
+        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains') {
           return jsonErrorResponse(409, {error: {code: 'ALIAS_DOMAIN_EXIST', message: 'Domain is already assigned.'}})
         }
 
@@ -516,7 +525,7 @@ describe('link', () => {
     expect(result.raw).to.deep.equal({name: 'app.example.com', verified: true})
   })
 
-  it('moves a Vercel alias from another project when force is enabled', async () => {
+  it('moves a Vercel domain from another project when force is enabled', async () => {
     let addAttempts = 0
     const requests: string[] = []
 
@@ -526,11 +535,11 @@ describe('link', () => {
       requests.push(`${method} ${url.pathname}`)
 
       if (url.hostname === 'api.vercel.com') {
-        if (method === 'POST' && url.pathname === '/projects/prj_new/alias') {
+        if (method === 'POST' && url.pathname === '/v10/projects/prj_new/domains') {
           addAttempts += 1
           return addAttempts === 1
             ? jsonErrorResponse(409, {error: {code: 'ALIAS_DOMAIN_EXIST', message: 'Domain is already assigned.'}})
-            : jsonResponse([{domain: 'app.example.com'}])
+            : jsonResponse({name: 'app.example.com', verified: true})
         }
 
         if (method === 'GET' && url.pathname === '/v9/projects/prj_new/domains/app.example.com') {
@@ -545,7 +554,7 @@ describe('link', () => {
           return jsonResponse({domains: [{name: 'app.example.com', projectId: 'prj_old'}]})
         }
 
-        if (method === 'DELETE' && url.pathname === '/projects/prj_old/alias' && url.searchParams.get('domain') === 'app.example.com') {
+        if (method === 'DELETE' && url.pathname === '/v9/projects/prj_old/domains/app.example.com') {
           return jsonResponse({})
         }
       }
@@ -558,7 +567,7 @@ describe('link', () => {
     })
 
     expect(result.alreadyAdded).to.equal(false)
-    expect(result.raw).to.deep.equal({domain: 'app.example.com'})
-    expect(requests).to.include('DELETE /projects/prj_old/alias')
+    expect(result.raw).to.deep.equal({name: 'app.example.com', verified: true})
+    expect(requests).to.include('DELETE /v9/projects/prj_old/domains/app.example.com')
   })
 })
