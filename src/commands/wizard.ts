@@ -15,7 +15,6 @@ import {createVercelClient, type VercelTeam} from '../lib/vercel.js'
 
 const PERSONAL_ACCOUNT = '__personal__'
 const NEW_TOKEN = '__new_token__'
-const SAVED_TOKEN = '__saved_token__'
 
 function cancelIfNeeded<T>(value: T | symbol): T | null {
   if (p.isCancel(value)) {
@@ -134,22 +133,18 @@ function globalTokenLabel(token: GlobalVercelToken): string {
   return token.source === 'environment' ? `Use ${token.label}` : `Use ${token.label} token`
 }
 
-async function promptVercelToken(globalTokens: GlobalVercelToken[], savedToken?: string): Promise<string | null> {
+async function promptVercelToken(globalTokens: GlobalVercelToken[]): Promise<string | null> {
   if (globalTokens.length > 0) {
     const selected = await p.select({
       message: 'Vercel token',
       options: [
         ...globalTokens.map((token, index) => ({label: globalTokenLabel(token), value: String(index), hint: maskSecret(token.token)})),
-        ...(savedToken && !globalTokens.some((token) => token.token === savedToken)
-          ? [{label: 'Use saved Doomain token', value: SAVED_TOKEN, hint: maskSecret(savedToken)}]
-          : []),
         {label: 'Enter a new token', value: NEW_TOKEN},
       ],
     })
 
     const resolved = cancelIfNeeded(selected)
     if (resolved === null) return null
-    if (resolved === SAVED_TOKEN) return savedToken ?? null
     if (resolved !== NEW_TOKEN) return globalTokens[Number(resolved)]?.token ?? null
   }
 
@@ -189,14 +184,14 @@ export default class Wizard extends Command {
       const config = await loadConfig()
       const providerDefinitions = listProviderDefinitions()
       const localProject = detectLocalVercelProject()
-      const globalVercelTokens = await listGlobalVercelTokens()
       let vercelToken = config.vercel?.token
       let vercelTeamId = process.env.VERCEL_TEAM_ID || localProject?.orgId || config.vercel?.teamId
       const defaultProvider = process.env.DOOMAIN_PROVIDER || config.defaults?.provider
       const defaultDomain = process.env.DOOMAIN_DOMAIN || config.defaults?.domain
 
-      if (globalVercelTokens.length > 0 || !vercelToken) {
-        vercelToken = (await promptVercelToken(globalVercelTokens, vercelToken)) ?? undefined
+      if (!vercelToken) {
+        const globalVercelTokens = await listGlobalVercelTokens()
+        vercelToken = (await promptVercelToken(globalVercelTokens)) ?? undefined
         if (!vercelToken) return
       }
 
