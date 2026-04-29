@@ -355,6 +355,53 @@ describe('link', () => {
     })
   })
 
+  it('returns recovery details when no DNS provider is configured', async () => {
+    let error: unknown
+    try {
+      await linkDomain({domain: 'app.example.com', dryRun: true, project: 'prj_123'})
+    } catch (error_) {
+      error = error_
+    }
+
+    expect(error).to.be.instanceOf(DoomainError)
+    expect((error as DoomainError).code).to.equal('CONFIG_NOT_FOUND')
+    expect((error as DoomainError).details).to.deep.include({
+      recovery: 'Connect the DNS provider that owns this domain, then retry `doomain link <domain> --json`.',
+      suggestedCommands: ['doomain providers connect', 'doomain link <domain> --json'],
+    })
+  })
+
+  it('returns configured providers and searched zones when no zone matches', async () => {
+    process.env.SPACESHIP_API_KEY = 'key'
+    process.env.SPACESHIP_API_SECRET = 'secret'
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input))
+      if (url.hostname === 'spaceship.dev' && url.pathname === '/api/v1/domains') {
+        return jsonResponse({items: [{name: 'other.dev'}], total: 1})
+      }
+
+      throw new Error(`Unexpected request: ${url.href}`)
+    }) as typeof fetch
+
+    let error: unknown
+    try {
+      await linkDomain({domain: 'app.example.com', dryRun: true, project: 'prj_123'})
+    } catch (error_) {
+      error = error_
+    }
+
+    expect(error).to.be.instanceOf(DoomainError)
+    expect((error as DoomainError).code).to.equal('PROVIDER_ZONE_NOT_FOUND')
+    expect((error as DoomainError).details).to.deep.include({
+      domain: 'app.example.com',
+      recovery:
+        'Retry with --provider <id> only if another configured provider owns this zone. Otherwise connect the DNS provider that owns this domain.',
+    })
+    expect((error as DoomainError).details).to.deep.include({
+      searchedZones: [{displayName: 'Spaceship', id: 'spaceship', zones: ['other.dev']}],
+    })
+  })
+
   it('extracts Vercel ownership TXT verification records', () => {
     const records = verificationRecords(
       {

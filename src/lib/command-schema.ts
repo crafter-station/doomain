@@ -1,8 +1,18 @@
+import {listProviderStatuses, type ProviderStatus} from './providers/status.js'
+
+export type ProviderConnectionStatus = Pick<ProviderStatus, 'configured' | 'default' | 'displayName' | 'docsUrl' | 'id'>
+
 export interface CommandSchema {
   name: string
   description: string
   examples: string[]
   agentHint?: string
+  agentInstructions?: string[]
+  agentQuickstart?: {
+    doNotPreflight: boolean
+    preferredFirstCommand: string
+  }
+  configuredProviders?: ProviderConnectionStatus[]
   mutates?: boolean
   safeForAgents?: boolean
   flags: Array<{
@@ -26,7 +36,16 @@ export const commandSchemas: CommandSchema[] = [
       'doomain link --provider spaceship --domain example.com --apex --project my-app --dry-run --json',
     ],
     agentHint:
-      'For agent use, run `doomain link <domain> --json`. The project is inferred from --project, DOOMAIN_PROJECT, config defaults, .vercel/project.json, or nearest package.json name.',
+      'For agent use, try `doomain link <domain> --json` first. Do not inspect project files, run provider status, or use --dry-run unless the user explicitly asks for a preview. The command infers project/provider and returns structured recovery errors when inference fails.',
+    agentInstructions: [
+      'When the user asks to add or link a domain, run `doomain link <domain> --json` first.',
+      'Do not run `providers status`, `projects list`, `--help`, or `--dry-run` before the first link attempt unless the user asks for a preview or diagnosis.',
+      'Only run follow-up commands when the JSON error includes a recovery action that requires them.',
+    ],
+    agentQuickstart: {
+      doNotPreflight: true,
+      preferredFirstCommand: 'doomain link <domain> --json',
+    },
     mutates: true,
     safeForAgents: true,
     flags: [
@@ -36,7 +55,7 @@ export const commandSchemas: CommandSchema[] = [
       {name: 'subdomain', type: 'string', description: 'Subdomain to add.'},
       {name: 'apex', type: 'boolean', description: 'Use the root/apex domain.'},
       {name: 'project', type: 'string', description: 'Vercel project id/name. Optional when project inference succeeds.'},
-      {name: 'dry-run', type: 'boolean', description: 'Preview changes without writing.'},
+      {name: 'dry-run', type: 'boolean', description: 'Preview changes without writing. Intended for human previews; agents should not use this unless explicitly asked.'},
       {name: 'force', type: 'boolean', description: 'Overwrite conflicting DNS records.'},
       {name: 'wait', type: 'boolean', description: 'Wait for DNS and Vercel verification.', default: true},
       {name: 'timeout', type: 'integer', description: 'Wait timeout in seconds.', default: 300},
@@ -117,4 +136,28 @@ export const commandSchemas: CommandSchema[] = [
 export function getCommandSchema(name?: string): CommandSchema[] | CommandSchema | undefined {
   if (!name) return commandSchemas
   return commandSchemas.find((schema) => schema.name === name)
+}
+
+async function configuredProviders(): Promise<ProviderConnectionStatus[]> {
+  return (await listProviderStatuses({verify: false})).map((provider) => ({
+    configured: provider.configured,
+    default: provider.default,
+    displayName: provider.displayName,
+    docsUrl: provider.docsUrl,
+    id: provider.id,
+  }))
+}
+
+function withProviderConnections(schema: CommandSchema, providers: ProviderConnectionStatus[]): CommandSchema {
+  if (schema.name !== 'link') return schema
+  return {...schema, configuredProviders: providers}
+}
+
+export async function getCommandSchemaForAgents(name?: string): Promise<CommandSchema[] | CommandSchema | undefined> {
+  const schema = getCommandSchema(name)
+  if (!schema) return undefined
+
+  const providers = await configuredProviders()
+  if (Array.isArray(schema)) return schema.map((item) => withProviderConnections(item, providers))
+  return withProviderConnections(schema, providers)
 }

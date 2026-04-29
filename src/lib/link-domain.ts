@@ -6,7 +6,7 @@ import {loadConfig} from './config.js'
 import {DoomainError} from './errors.js'
 import {detectLocalVercelProject} from './local-vercel.js'
 import {createProvider, getProviderDefinition, listProviderDefinitions} from './providers/registry.js'
-import {isProviderConfigured} from './providers/status.js'
+import {isProviderConfigured, listProviderStatuses} from './providers/status.js'
 import type {DnsProvider, DnsProviderDefinition, DnsRecordInput, DnsZone} from './providers/types.js'
 import {normalizeDomain, normalizeSubdomain} from './validate.js'
 import {createVercelClient, resolveVercelConfig, VERCEL_APEX_A_RECORD, VERCEL_CNAME_RECORD, type VercelProject} from './vercel.js'
@@ -205,6 +205,16 @@ interface ProviderZoneSearchResult {
   zones: string[]
 }
 
+async function providerConnectionDetails() {
+  return (await listProviderStatuses({verify: false})).map((provider) => ({
+    configured: provider.configured,
+    default: provider.default,
+    displayName: provider.displayName,
+    docsUrl: provider.docsUrl,
+    id: provider.id,
+  }))
+}
+
 interface ResolvedTarget {
   provider: string
   providerInferred: boolean
@@ -281,7 +291,11 @@ async function loadConfiguredProviderZones(providerId?: string): Promise<{
   const config = await loadConfig()
   const definitions = listProviderDefinitions().filter((definition) => isProviderConfigured(definition, config))
   if (definitions.length === 0) {
-    throw new DoomainError('CONFIG_NOT_FOUND', 'No DNS provider is configured. Run `doomain providers connect` first.')
+    throw new DoomainError('CONFIG_NOT_FOUND', 'No DNS provider is configured. Run `doomain providers connect` first.', {
+      configuredProviders: await providerConnectionDetails(),
+      recovery: 'Connect the DNS provider that owns this domain, then retry `doomain link <domain> --json`.',
+      suggestedCommands: ['doomain providers connect', 'doomain link <domain> --json'],
+    })
   }
 
   const results = await Promise.all(
@@ -324,7 +338,14 @@ async function resolveProviderTarget(input: LinkDomainInput): Promise<ResolvedTa
     const providerMessage = input.provider
       ? `${getProviderDefinition(input.provider).displayName} does not have a matching DNS zone for ${requested.fullDomain}.`
       : `No configured DNS provider has a matching DNS zone for ${requested.fullDomain}.`
-    throw new DoomainError('PROVIDER_ZONE_NOT_FOUND', providerMessage, {domain: requested.fullDomain, providers: zones.searched})
+    throw new DoomainError('PROVIDER_ZONE_NOT_FOUND', providerMessage, {
+      configuredProviders: await providerConnectionDetails(),
+      domain: requested.fullDomain,
+      recovery:
+        'Retry with --provider <id> only if another configured provider owns this zone. Otherwise connect the DNS provider that owns this domain.',
+      searchedZones: zones.searched,
+      suggestedCommands: [`doomain link ${requested.fullDomain} --provider <id> --json`, 'doomain providers connect'],
+    })
   }
 
   const bestLength = matches[0].zone.name.length
