@@ -1,4 +1,4 @@
-import {mkdtempSync, rmSync} from 'node:fs'
+import {mkdtempSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -7,6 +7,7 @@ import {expect} from 'chai'
 
 import {DoomainError} from '../../src/lib/errors.js'
 import {linkDomain, verificationRecords} from '../../src/lib/link-domain.js'
+import {saveConfig} from '../../src/lib/config.js'
 import {createVercelClient} from '../../src/lib/vercel.js'
 
 function jsonResponse(body: unknown): Response {
@@ -40,6 +41,7 @@ function namecheapDomainListXml(domains: string[]): string {
 describe('link', () => {
   const originalFetch = globalThis.fetch
   const env = {...process.env}
+  const cwd = process.cwd()
   let dir: string
 
   beforeEach(() => {
@@ -66,6 +68,7 @@ describe('link', () => {
   afterEach(() => {
     globalThis.fetch = originalFetch
     process.env = {...env}
+    process.chdir(cwd)
     rmSync(dir, {force: true, recursive: true})
   })
 
@@ -133,6 +136,123 @@ describe('link', () => {
     expect(result.data.domain).to.equal('app.example.com')
     expect(result.data.provider).to.equal('cloudflare')
     expect(result.data.recordName).to.equal('app')
+  })
+
+  it('infers the Vercel project from the nearest package.json name', async () => {
+    process.env.VERCEL_TOKEN = 'vercel_token'
+    process.env.SPACESHIP_API_KEY = 'key'
+    process.env.SPACESHIP_API_SECRET = 'secret'
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({name: 'crafter-survey'}))
+    process.chdir(dir)
+
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input))
+      if (url.hostname === 'api.vercel.com' && url.pathname === '/v9/projects') {
+        expect(url.searchParams.get('search')).to.equal('crafter-survey')
+        return jsonResponse({projects: [{id: 'prj_123', name: 'crafter-survey'}]})
+      }
+
+      if (url.hostname === 'spaceship.dev' && url.pathname === '/api/v1/domains') {
+        return jsonResponse({items: [{name: 'crafter.ventures'}], total: 1})
+      }
+
+      throw new Error(`Unexpected request: ${url.href}`)
+    }) as typeof fetch
+
+    const {stdout} = await runCommand('link survey.crafter.ventures --dry-run --json')
+    const result = JSON.parse(stdout) as {
+      ok: boolean
+      data: {domain: string; project: string; projectSource: string; provider: string; zoneDomain: string}
+    }
+
+    expect(result.ok).to.equal(true)
+    expect(result.data.domain).to.equal('survey.crafter.ventures')
+    expect(result.data.project).to.equal('crafter-survey')
+    expect(result.data.projectSource).to.equal('packageJson')
+    expect(result.data.provider).to.equal('spaceship')
+    expect(result.data.zoneDomain).to.equal('crafter.ventures')
+  })
+
+  it('suggests Vercel projects when package.json project inference misses', async () => {
+    process.env.VERCEL_TOKEN = 'vercel_token'
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({name: 'crafter-survey'}))
+    process.chdir(dir)
+
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input))
+      if (url.hostname === 'api.vercel.com' && url.pathname === '/v9/projects') {
+        const search = url.searchParams.get('search')
+        if (search === 'crafter-survey') return jsonResponse({projects: []})
+        if (!search) {
+          return jsonResponse({
+            projects: [
+              {id: 'prj_1', name: 'crafter-survey-prod'},
+              {id: 'prj_2', name: 'survey'},
+              {id: 'prj_3', name: 'unrelated'},
+            ],
+          })
+        }
+      }
+
+      throw new Error(`Unexpected request: ${url.href}`)
+    }) as typeof fetch
+
+    const {stdout} = await runCommand('link survey.crafter.ventures --dry-run --json')
+    const result = JSON.parse(stdout) as {
+      error: {code: string; details: {project: string; projectSource: string; suggestions: Array<{id: string; name: string}>}}
+      ok: boolean
+    }
+
+    expect(result.ok).to.equal(false)
+    expect(result.error.code).to.equal('VERCEL_PROJECT_NOT_LINKED')
+    expect(result.error.details.project).to.equal('crafter-survey')
+    expect(result.error.details.projectSource).to.equal('packageJson')
+    expect(result.error.details.suggestions).to.deep.equal([
+      {id: 'prj_1', name: 'crafter-survey-prod'},
+      {id: 'prj_2', name: 'survey'},
+    ])
+  })
+
+  it('uses DOOMAIN_PROJECT before package.json inference', async () => {
+    process.env.DOOMAIN_PROJECT = 'env-project'
+    process.env.SPACESHIP_API_KEY = 'key'
+    process.env.SPACESHIP_API_SECRET = 'secret'
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({name: 'package-project'}))
+    process.chdir(dir)
+
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input))
+      if (url.hostname === 'spaceship.dev' && url.pathname === '/api/v1/domains') {
+        return jsonResponse({items: [{name: 'example.com'}], total: 1})
+      }
+
+      throw new Error(`Unexpected request: ${url.href}`)
+    }) as typeof fetch
+
+    const result = await linkDomain({domain: 'app.example.com', dryRun: true})
+
+    expect(result.project).to.equal('env-project')
+    expect(result.projectSource).to.equal('env')
+  })
+
+  it('uses configured default project when no project flag is provided', async () => {
+    process.env.SPACESHIP_API_KEY = 'key'
+    process.env.SPACESHIP_API_SECRET = 'secret'
+    await saveConfig({defaults: {project: 'configured-project'}})
+
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input))
+      if (url.hostname === 'spaceship.dev' && url.pathname === '/api/v1/domains') {
+        return jsonResponse({items: [{name: 'example.com'}], total: 1})
+      }
+
+      throw new Error(`Unexpected request: ${url.href}`)
+    }) as typeof fetch
+
+    const result = await linkDomain({domain: 'app.example.com', dryRun: true})
+
+    expect(result.project).to.equal('configured-project')
+    expect(result.projectSource).to.equal('config')
   })
 
   it('infers Namecheap provider and zone from a full target domain', async () => {

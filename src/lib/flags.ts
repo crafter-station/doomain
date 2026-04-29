@@ -12,5 +12,5 @@ export const apexFlag = Flags.boolean({description: 'Use the root/apex domain in
 
 export const projectFlag = Flags.string({
   char: 'p',
-  description: 'Vercel project id/name. Auto-detected from .vercel/project.json when omitted.',
+  description: 'Vercel project id/name. Inferred from env, config, .vercel/project.json, or package.json when omitted.',
 })

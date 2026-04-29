@@ -9,6 +9,7 @@ export default class Link extends Command {
   static description = 'Link a Vercel project to a domain and create DNS records.'
 
   static examples = [
+    '<%= config.bin %> <%= command.id %> app.example.com --json',
     '<%= config.bin %> <%= command.id %> app.example.com --project my-app --json',
     '<%= config.bin %> <%= command.id %> --domain app.example.com --project my-app --json',
     '<%= config.bin %> <%= command.id %> --domain example.com --subdomain app --project my-app',

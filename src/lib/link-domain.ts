@@ -1,4 +1,6 @@
 import {resolve4, resolveCname, resolveTxt} from 'node:dns/promises'
+import {existsSync, readFileSync} from 'node:fs'
+import {dirname, join, parse} from 'node:path'
 
 import {loadConfig} from './config.js'
 import {DoomainError} from './errors.js'
@@ -7,7 +9,7 @@ import {createProvider, getProviderDefinition, listProviderDefinitions} from './
 import {isProviderConfigured} from './providers/status.js'
 import type {DnsProvider, DnsProviderDefinition, DnsRecordInput, DnsZone} from './providers/types.js'
 import {normalizeDomain, normalizeSubdomain} from './validate.js'
-import {createVercelClient, resolveVercelConfig, VERCEL_APEX_A_RECORD, VERCEL_CNAME_RECORD} from './vercel.js'
+import {createVercelClient, resolveVercelConfig, VERCEL_APEX_A_RECORD, VERCEL_CNAME_RECORD, type VercelProject} from './vercel.js'
 
 export interface LinkDomainInput {
   provider?: string
@@ -21,6 +23,8 @@ export interface LinkDomainInput {
   timeoutSeconds?: number
   progress?: LinkDomainProgressCallback
 }
+
+export type LinkDomainProjectSource = 'config' | 'env' | 'flag' | 'packageJson' | 'vercelProjectFile'
 
 export type LinkDomainProgressStage =
   | 'dns:apply'
@@ -43,6 +47,7 @@ export interface LinkDomainPlan {
   provider: string
   providerInferred: boolean
   project: string
+  projectSource: LinkDomainProjectSource
   recordName: string
   zoneDomain: string
   domain: string
@@ -81,15 +86,95 @@ async function resolveConfiguredDomain(domain?: string): Promise<string> {
   return resolved
 }
 
-function resolveProject(project?: string): {project: string; localProjectDetected: boolean} {
-  if (project) return {project, localProjectDetected: false}
+function findPackageProjectName(start = process.cwd()): string | undefined {
+  let current = start
+  const root = parse(start).root
+
+  while (true) {
+    const packagePath = join(current, 'package.json')
+    if (existsSync(packagePath)) {
+      try {
+        const data = JSON.parse(readFileSync(packagePath, 'utf8')) as {name?: unknown}
+        if (typeof data.name === 'string' && data.name.trim()) return data.name.trim()
+      } catch {
+        return undefined
+      }
+    }
+
+    if (current === root) return undefined
+    current = dirname(current)
+  }
+}
+
+function projectSuggestionScore(projectName: string, project: VercelProject): number {
+  const target = projectName.toLowerCase()
+  const name = project.name.toLowerCase()
+  const id = project.id.toLowerCase()
+
+  if (name === target || id === target) return 0
+  if (name.startsWith(target)) return 1
+  if (name.includes(target)) return 2
+  if (target.includes(name)) return 3
+
+  const targetParts = target.split(/[^a-z0-9]+/).filter(Boolean)
+  const matchingParts = targetParts.filter((part) => name.includes(part)).length
+  return matchingParts > 0 ? 4 + (targetParts.length - matchingParts) : 99
+}
+
+function projectSuggestions(projectName: string, projects: VercelProject[]): Array<Pick<VercelProject, 'id' | 'name'>> {
+  const seen = new Set<string>()
+  return projects
+    .filter((project) => {
+      if (seen.has(project.id)) return false
+      seen.add(project.id)
+      return true
+    })
+    .map((project) => ({project, score: projectSuggestionScore(projectName, project)}))
+    .filter(({score}) => score < 99)
+    .sort((a, b) => a.score - b.score || a.project.name.localeCompare(b.project.name))
+    .slice(0, 5)
+    .map(({project}) => ({id: project.id, name: project.name}))
+}
+
+async function resolvePackageProject(projectName: string): Promise<string> {
+  const vercel = createVercelClient(await resolveVercelConfig())
+  const projects = await vercel.listProjects(projectName)
+  const match = projects.find((project) => project.name === projectName || project.id === projectName)
+  if (match) return match.name
+
+  const allProjects = await vercel.listProjects().catch(() => [])
+  const suggestions = projectSuggestions(projectName, [...projects, ...allProjects])
+
+  throw new DoomainError('VERCEL_PROJECT_NOT_LINKED', `No Vercel project named ${projectName} was found. Pass --project to choose a project.`, {
+    project: projectName,
+    projectSource: 'packageJson',
+    suggestions,
+  })
+}
+
+async function resolveProject(project?: string): Promise<{project: string; projectSource: LinkDomainProjectSource; localProjectDetected: boolean}> {
+  if (project) return {project, projectSource: 'flag', localProjectDetected: false}
+
+  const config = await loadConfig()
+  const envProject = process.env.DOOMAIN_PROJECT
+  if (envProject) return {project: envProject, projectSource: 'env', localProjectDetected: false}
+  if (config.defaults?.project) return {project: config.defaults.project, projectSource: 'config', localProjectDetected: false}
 
   const localProject = detectLocalVercelProject()
-  if (localProject) return {project: localProject.projectId, localProjectDetected: true}
+  if (localProject) return {project: localProject.projectId, projectSource: 'vercelProjectFile', localProjectDetected: true}
+
+  const packageProject = findPackageProjectName()
+  if (packageProject) {
+    return {
+      project: await resolvePackageProject(packageProject),
+      projectSource: 'packageJson',
+      localProjectDetected: false,
+    }
+  }
 
   throw new DoomainError(
     'VERCEL_PROJECT_NOT_LINKED',
-    'No linked Vercel project found. Run inside a Vercel project or pass --project.',
+    'No Vercel project could be inferred. Run inside a project with package.json/.vercel/project.json or pass --project.',
   )
 }
 
@@ -490,7 +575,7 @@ function reportProgress(input: LinkDomainInput, stage: LinkDomainProgressStage, 
 }
 
 export async function createLinkPlan(input: LinkDomainInput): Promise<LinkDomainPlan> {
-  const project = resolveProject(input.project)
+  const project = await resolveProject(input.project)
   const resolved = await resolveProviderTarget(input)
   const {provider, providerInferred, target} = resolved
   const record = planBaseRecord({isApex: target.isApex, provider, recordName: target.recordName})
@@ -499,6 +584,7 @@ export async function createLinkPlan(input: LinkDomainInput): Promise<LinkDomain
     provider,
     providerInferred,
     project: project.project,
+    projectSource: project.projectSource,
     recordName: target.recordName,
     zoneDomain: target.zoneDomain,
     domain: target.fullDomain,

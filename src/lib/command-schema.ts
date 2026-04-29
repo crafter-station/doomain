@@ -2,6 +2,9 @@ export interface CommandSchema {
   name: string
   description: string
   examples: string[]
+  agentHint?: string
+  mutates?: boolean
+  safeForAgents?: boolean
   flags: Array<{
     name: string
     type: 'boolean' | 'integer' | 'string'
@@ -16,18 +19,23 @@ export const commandSchemas: CommandSchema[] = [
     name: 'link',
     description: 'Link a Vercel project to a domain and create DNS records.',
     examples: [
+      'doomain link app.example.com --json',
       'doomain link app.example.com --project my-app --json',
       'doomain link --domain app.example.com --project my-app --json',
       'doomain link --domain example.com --subdomain app --project my-app --json',
       'doomain link --provider spaceship --domain example.com --apex --project my-app --dry-run --json',
     ],
+    agentHint:
+      'For agent use, run `doomain link <domain> --json`. The project is inferred from --project, DOOMAIN_PROJECT, config defaults, .vercel/project.json, or nearest package.json name.',
+    mutates: true,
+    safeForAgents: true,
     flags: [
       {name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.'},
       {name: 'provider', type: 'string', description: 'DNS provider id. Inferred from the target domain when omitted.'},
       {name: 'domain', type: 'string', description: 'Target domain or base zone, for example app.example.com or example.com.'},
       {name: 'subdomain', type: 'string', description: 'Subdomain to add.'},
       {name: 'apex', type: 'boolean', description: 'Use the root/apex domain.'},
-      {name: 'project', type: 'string', description: 'Vercel project id/name.'},
+      {name: 'project', type: 'string', description: 'Vercel project id/name. Optional when project inference succeeds.'},
       {name: 'dry-run', type: 'boolean', description: 'Preview changes without writing.'},
       {name: 'force', type: 'boolean', description: 'Overwrite conflicting DNS records.'},
       {name: 'wait', type: 'boolean', description: 'Wait for DNS and Vercel verification.', default: true},

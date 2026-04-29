@@ -36,6 +36,7 @@ export interface DoomainConfig {
     [provider: string]: ProviderConfig | SpaceshipProviderConfig | undefined
   }
   defaults?: {
+    project?: string
     provider?: string
     domain?: string
   }
