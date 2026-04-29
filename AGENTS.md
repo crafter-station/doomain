@@ -32,4 +32,4 @@
 ## Release/Generated Files
 - `prepack` runs `oclif manifest && oclif readme`, generating `oclif.manifest.json` and updating README command docs.
 - `oclif.manifest.json` and `dist/` are ignored build artifacts; README changes from `oclif readme` are source changes.
-- Main-branch CI creates a GitHub release for the current `package.json` version if the tag does not already exist; release publishing runs `build`, `prepack`, npm publish, then `postpack`.
+- Every push to `main` (other than the bot's own `[skip ci]` version-bump commit) bumps the patch version via `npm version patch`, runs `build` and `prepack`, publishes to npm, then pushes the tag and creates the matching GitHub release.

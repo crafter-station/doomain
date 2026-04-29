@@ -1,5 +1,4 @@
-# test
-name: version, tag and github release
+name: release and publish
 
 on:
   push:
@@ -11,50 +10,46 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # Skip the version-bump commit this workflow itself pushes to avoid an infinite loop.
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/setup-node@v4
+        with:
+          node-version: latest
+          registry-url: https://registry.npmjs.org
       - uses: oven-sh/setup-bun@v2
-      - name: Check if version already exists
-        id: version-check
-        run: |
-          package_version=$(node -p "require('./package.json').version")
-          exists=$(gh api repos/${{ github.repository }}/releases/tags/v$package_version >/dev/null 2>&1 && echo "true" || echo "")
-
-          if [ -n "$exists" ];
-          then
-            echo "Version v$package_version already exists"
-            echo "::warning file=package.json,line=1::Version v$package_version already exists - no release will be created. If you want to create a new release, please update the version in package.json and push again."
-            echo "skipped=true" >> $GITHUB_OUTPUT
-          else
-            echo "Version v$package_version does not exist. Creating release..."
-            echo "skipped=false" >> $GITHUB_OUTPUT
-            echo "tag=v$package_version" >> $GITHUB_OUTPUT
-          fi
-        env:
-          GH_TOKEN: ${{ github.token }}
       - name: Setup git
-        if: ${{ steps.version-check.outputs.skipped == 'false' }}
         run: |
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-      - name: Generate oclif README
-        if: ${{ steps.version-check.outputs.skipped == 'false' }}
-        id: oclif-readme
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Bump patch version
+        id: bump
         run: |
-          bun install --frozen-lockfile
-          bunx oclif readme
-          if [ -n "$(git status --porcelain)" ]; then
-            git add .
-            git commit -am "chore: update README.md"
-            git push -u origin ${{ github.ref_name }}
-          fi
+          new_version=$(npm version patch -m "chore: release %s [skip ci]")
+          echo "tag=$new_version" >> "$GITHUB_OUTPUT"
+      - name: Build
+        run: bun run build
+      - name: Prepack
+        run: bun run prepack
+      - name: Publish to npm
+        uses: JS-DevTools/npm-publish@19c28f1ef146469e409470805ea4279d47c3d35c
+        with:
+          token: ${{ secrets.NPM_TOKEN }}
+      - name: Postpack
+        run: bun run postpack
+      - name: Push commit and tag
+        run: git push --follow-tags origin ${{ github.ref_name }}
       - name: Create Github Release
         uses: ncipollo/release-action@2c591bcc8ecdcd2db72b97d6147f871fcd833ba5
-        if: ${{ steps.version-check.outputs.skipped == 'false' }}
         with:
-          name: ${{ steps.version-check.outputs.tag }}
-          tag: ${{ steps.version-check.outputs.tag }}
+          name: ${{ steps.bump.outputs.tag }}
+          tag: ${{ steps.bump.outputs.tag }}
           commit: ${{ github.ref_name }}
           token: ${{ github.token }}
           skipIfReleaseExists: true
