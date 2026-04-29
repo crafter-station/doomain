@@ -28,13 +28,14 @@ jobs:
           git config user.name "github-actions[bot]"
       - name: Install dependencies
         run: bun install --frozen-lockfile
+      - name: Build
+        run: bun run build
       - name: Bump patch version
         id: bump
         run: |
-          new_version=$(npm version patch -m "chore: release %s [skip ci]")
+          npm version patch -m "chore: release %s [skip ci]"
+          new_version=$(git describe --tags --abbrev=0)
           echo "tag=$new_version" >> "$GITHUB_OUTPUT"
-      - name: Build
-        run: bun run build
       - name: Prepack
         run: bun run prepack
       - name: Publish to npm
