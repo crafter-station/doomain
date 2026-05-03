@@ -23,6 +23,7 @@
 - `doomain schema --json` is the in-repo command contract for agent-safe commands; update `src/lib/command-schema.ts` when adding or changing public command flags/examples.
 - `link` project inference order is: `--project`, `DOOMAIN_PROJECT`, `config.defaults.project`, nearest `.vercel/project.json`, then nearest `package.json` name resolved through Vercel.
 - `link --dry-run` only resolves project/provider/zone/base Vercel record; it does not add the Vercel domain, fetch TXT verification records, or inspect existing DNS conflicts.
+- Non-dry-run `link` inspects the target A/CNAME DNS slot before adding the domain to Vercel. Interactive mode prompts before overriding DNS that points elsewhere; JSON/non-TTY mode fails with `DNS_TARGET_CONFLICT` unless `--force` is passed.
 - Local config defaults to `~/.doomain/config.json`; provider/Vercel env vars override saved config, and tests should isolate credentials with `DOOMAIN_CONFIG_FILE`.
 
 ## Provider Rules
@@ -33,6 +34,7 @@
 - Cloudflare Vercel `A`/`AAAA`/`CNAME` records must be written with `proxied: false` so Vercel validation works.
 - Namecheap `setHosts` replaces the whole host list; preserve unrelated records by planning from existing records and submitting the full final set.
 - DNS conflict behavior lives in `src/lib/providers/core/planner.ts`: TXT can coexist at the same name, same-type conflicts require `--force`, and CNAME slot conflicts delete/create only with `--force`.
+- Confirmed interactive DNS overrides should force DNS writes only; moving an already-assigned Vercel alias between projects still requires the user to pass `--force`.
 
 ## Release/Generated Files
 - `prepack` runs `oclif manifest && oclif readme`, generating `oclif.manifest.json` and updating README command docs.

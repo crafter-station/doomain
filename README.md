@@ -13,6 +13,7 @@ Use the interactive wizard when working by hand. Use explicit commands with `--j
 - Vercel project detection from `.vercel/project.json`.
 - DNS provider inference by longest matching configured zone.
 - Dry-run plans before writing changes.
+- Safety checks before replacing DNS records that point elsewhere.
 - DNS propagation and Vercel verification wait loop.
 - DNS provider support for Spaceship, Namecheap, Cloudflare, and Hostinger.
 
@@ -40,7 +41,8 @@ The wizard will:
 4. Connect a DNS provider if none is configured.
 5. List domains from configured DNS providers.
 6. Preview the Vercel and DNS changes.
-7. Apply the changes and request Vercel verification.
+7. Warn if the current DNS target points elsewhere and ask before overriding it.
+8. Apply the changes and request Vercel verification.
 
 If you already know the target project and domain, run the link command directly:
 
@@ -83,6 +85,8 @@ Apply it:
 ```bash
 doomain link app.example.com --project my-vercel-project --json
 ```
+
+If JSON mode returns `DNS_TARGET_CONFLICT`, the current DNS target appears to point to another project or site. Re-run with `--force` only when you intend to replace that DNS target.
 
 ## Provider Setup
 
@@ -257,8 +261,10 @@ DNS conflict rules:
 
 - Existing exact records are skipped.
 - TXT records can coexist at the same name.
-- Same-name, same-type conflicts require `--force`.
-- CNAME slot conflicts require `--force` because a CNAME cannot share a name with most other record types.
+- Same-name, same-type conflicts trigger an interactive override prompt or require `--force` in JSON/non-interactive mode.
+- CNAME slot conflicts trigger an interactive override prompt or require `--force` in JSON/non-interactive mode because a CNAME cannot share a name with most other record types.
+
+For real links, Doomain inspects the target `A` or `CNAME` DNS slot before adding the domain to Vercel. In interactive mode, it shows the existing and desired records and asks whether to override. In JSON mode, it fails with `DNS_TARGET_CONFLICT` instead of prompting.
 
 Use `--force` only when you intend to replace conflicting DNS records or move an existing Vercel alias:
 
@@ -267,6 +273,8 @@ doomain link app.example.com --project my-app --force
 ```
 
 `--force` can remove an existing Vercel alias from another project and add it to the target project.
+
+Confirming the interactive DNS override only forces DNS writes. If Vercel says the domain is already assigned to another project, re-run with `--force` to move that Vercel alias.
 
 Namecheap note: Namecheap's API writes DNS through `setHosts`, which replaces the full host list. Doomain reads all existing records first, applies planned changes in memory, preserves unrelated records, then submits the complete final record set.
 
@@ -333,7 +341,7 @@ Common flags:
 - `-p, --project <project>`: Vercel project id or name.
 - `--provider <id>`: DNS provider id.
 - `--dry-run`: preview without writing.
-- `--force`: overwrite DNS conflicts and allow Vercel alias moves.
+- `--force`: overwrite DNS conflicts without prompting and allow Vercel alias moves.
 - `--wait`, `--no-wait`: wait for DNS and Vercel verification. Default is `--wait`.
 - `--timeout <seconds>`: wait timeout. Default is `300`.
 - `--json`: output one JSON object.
@@ -345,6 +353,7 @@ doomain link app.example.com --project my-app
 doomain link --domain example.com --subdomain app --project my-app
 doomain link --domain example.com --apex --project my-app
 doomain link app.example.com --project my-app --dry-run --json
+doomain link app.example.com --project my-app --force
 ```
 
 ### `doomain auth vercel`
@@ -566,6 +575,10 @@ Make sure the domain is active in Hostinger before linking it. Domains shown as 
 DNS propagation timeout
 
 The DNS records may have been saved even if Vercel verification timed out. Check the domain in Vercel, inspect records with `doomain domains list`, or re-run verification with `doomain verify`.
+
+DNS target conflict
+
+The domain already has a conflicting `A` or `CNAME` record, which usually means it points to another project or site. In interactive mode, confirm the override only if you intend to replace that target. In JSON mode, re-run `doomain link` with `--force` to overwrite DNS.
 
 Domain already assigned to another Vercel project
 
