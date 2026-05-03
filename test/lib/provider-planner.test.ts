@@ -68,4 +68,38 @@ describe('planDnsChanges', () => {
     expect(plan.conflicts).to.deep.equal([])
     expect(plan.changes.map((change) => change.action)).to.deep.equal(['create'])
   })
+
+  it('reports CNAME slot conflicts without force', () => {
+    const plan = planDnsChanges({
+      desired: [{name: 'app', type: 'CNAME', value: 'cname.vercel-dns.com'}],
+      existing: [{name: 'app', type: 'A', value: '192.0.2.1'}],
+      providerId: 'test',
+      zone,
+    })
+
+    expect(plan.changes).to.deep.equal([])
+    expect(plan.conflicts).to.deep.equal([
+      {
+        existing: {name: 'app', type: 'A', value: '192.0.2.1'},
+        reason: 'cname_slot_conflict',
+        record: {name: 'app', type: 'CNAME', value: 'cname.vercel-dns.com'},
+      },
+    ])
+  })
+
+  it('deletes and creates CNAME slot conflicts with force', () => {
+    const plan = planDnsChanges({
+      desired: [{name: 'app', type: 'CNAME', value: 'cname.vercel-dns.com'}],
+      existing: [{name: 'app', type: 'A', value: '192.0.2.1'}],
+      force: true,
+      providerId: 'test',
+      zone,
+    })
+
+    expect(plan.conflicts).to.deep.equal([])
+    expect(plan.changes).to.deep.equal([
+      {action: 'delete', existing: {name: 'app', type: 'A', value: '192.0.2.1'}, reason: 'cname_slot_conflict'},
+      {action: 'create', record: {name: 'app', type: 'CNAME', value: 'cname.vercel-dns.com'}},
+    ])
+  })
 })

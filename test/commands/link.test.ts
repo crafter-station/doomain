@@ -538,6 +538,238 @@ describe('link', () => {
     })
   })
 
+  it('reports DNS target conflicts before adding the domain to Vercel in JSON mode', async () => {
+    const requests: string[] = []
+    process.env.VERCEL_TOKEN = 'vercel_token'
+    process.env.CLOUDFLARE_API_TOKEN = 'cloudflare_token'
+    process.env.CLOUDFLARE_ACCOUNT_ID = 'account_123'
+
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input))
+      const method = init?.method ?? 'GET'
+      requests.push(`${method} ${url.pathname}`)
+
+      if (url.hostname === 'api.vercel.com') {
+        if (method === 'GET' && url.pathname === '/v6/domains/app.example.com/config') return jsonResponse({})
+        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains') {
+          return jsonResponse({name: 'app.example.com', verified: true})
+        }
+      }
+
+      if (url.hostname === 'api.cloudflare.com') {
+        if (method === 'GET' && url.pathname === '/client/v4/zones') return jsonResponse(cloudflareResponse([{id: 'zone_1', name: 'example.com'}]))
+        if (method === 'GET' && url.pathname === '/client/v4/zones/zone_1/dns_records') {
+          return jsonResponse(
+            cloudflareResponse([{content: 'old.example.com', id: 'record_old', name: 'app.example.com', ttl: 3600, type: 'CNAME'}]),
+          )
+        }
+      }
+
+      throw new Error(`Unexpected request: ${method} ${url.href}`)
+    }) as typeof fetch
+
+    const {stdout} = await runCommand('link app.example.com --provider cloudflare --project prj_123 --json')
+    const result = JSON.parse(stdout) as {
+      error: {code: string; details: {conflicts: Array<{existing: {value: string}}>}}
+      ok: boolean
+    }
+
+    expect(result.ok).to.equal(false)
+    expect(result.error.code).to.equal('DNS_TARGET_CONFLICT')
+    expect(result.error.details.conflicts[0].existing.value).to.equal('old.example.com')
+    expect(requests).not.to.include('POST /v10/projects/prj_123/domains')
+  })
+
+  it('overwrites conflicting DNS records and continues when force is enabled', async () => {
+    const requests: string[] = []
+    const dnsBodies: Array<Record<string, unknown>> = []
+    process.env.VERCEL_TOKEN = 'vercel_token'
+    process.env.CLOUDFLARE_API_TOKEN = 'cloudflare_token'
+    process.env.CLOUDFLARE_ACCOUNT_ID = 'account_123'
+
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input))
+      const method = init?.method ?? 'GET'
+      requests.push(`${method} ${url.pathname}`)
+
+      if (url.hostname === 'api.vercel.com') {
+        if (method === 'GET' && url.pathname === '/v6/domains/app.example.com/config') return jsonResponse({})
+        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains') return jsonResponse({name: 'app.example.com', verified: true})
+        if (method === 'GET' && url.pathname === '/v9/projects/prj_123/domains/app.example.com') {
+          return jsonResponse({name: 'app.example.com', verified: true})
+        }
+      }
+
+      if (url.hostname === 'api.cloudflare.com') {
+        if (method === 'GET' && url.pathname === '/client/v4/zones') return jsonResponse(cloudflareResponse([{id: 'zone_1', name: 'example.com'}]))
+        if (method === 'GET' && url.pathname === '/client/v4/zones/zone_1/dns_records') {
+          return jsonResponse(
+            cloudflareResponse([{content: 'old.example.com', id: 'record_old', name: 'app.example.com', ttl: 3600, type: 'CNAME'}]),
+          )
+        }
+
+        if (method === 'PUT' && url.pathname === '/client/v4/zones/zone_1/dns_records/record_old') {
+          const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+          dnsBodies.push(body)
+          return jsonResponse(cloudflareResponse({...body, id: 'record_old'}))
+        }
+      }
+
+      throw new Error(`Unexpected request: ${method} ${url.href}`)
+    }) as typeof fetch
+
+    const result = await linkDomain({domain: 'app.example.com', force: true, project: 'prj_123', provider: 'cloudflare', wait: false})
+
+    expect(result.dns.updated).to.equal(true)
+    expect(requests).to.include('POST /v10/projects/prj_123/domains')
+    expect(dnsBodies).to.deep.equal([{content: 'cname.vercel-dns.com', name: 'app.example.com', proxied: false, ttl: 3600, type: 'CNAME'}])
+  })
+
+  it('uses confirmed DNS override for DNS writes without forcing Vercel moves', async () => {
+    const requests: string[] = []
+    const dnsBodies: Array<Record<string, unknown>> = []
+    let confirmedDomain: string | undefined
+    process.env.VERCEL_TOKEN = 'vercel_token'
+    process.env.CLOUDFLARE_API_TOKEN = 'cloudflare_token'
+    process.env.CLOUDFLARE_ACCOUNT_ID = 'account_123'
+
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input))
+      const method = init?.method ?? 'GET'
+      requests.push(`${method} ${url.pathname}`)
+
+      if (url.hostname === 'api.vercel.com') {
+        if (method === 'GET' && url.pathname === '/v6/domains/app.example.com/config') return jsonResponse({})
+        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains') return jsonResponse({name: 'app.example.com', verified: true})
+        if (method === 'GET' && url.pathname === '/v9/projects/prj_123/domains/app.example.com') {
+          return jsonResponse({name: 'app.example.com', verified: true})
+        }
+      }
+
+      if (url.hostname === 'api.cloudflare.com') {
+        if (method === 'GET' && url.pathname === '/client/v4/zones') return jsonResponse(cloudflareResponse([{id: 'zone_1', name: 'example.com'}]))
+        if (method === 'GET' && url.pathname === '/client/v4/zones/zone_1/dns_records') {
+          return jsonResponse(
+            cloudflareResponse([{content: 'old.example.com', id: 'record_old', name: 'app.example.com', ttl: 3600, type: 'CNAME'}]),
+          )
+        }
+
+        if (method === 'PUT' && url.pathname === '/client/v4/zones/zone_1/dns_records/record_old') {
+          const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+          dnsBodies.push(body)
+          return jsonResponse(cloudflareResponse({...body, id: 'record_old'}))
+        }
+      }
+
+      throw new Error(`Unexpected request: ${method} ${url.href}`)
+    }) as typeof fetch
+
+    const result = await linkDomain({
+      confirmDnsOverride: async (warning) => {
+        confirmedDomain = warning.domain
+        return true
+      },
+      domain: 'app.example.com',
+      project: 'prj_123',
+      provider: 'cloudflare',
+      wait: false,
+    })
+
+    expect(result.dns.updated).to.equal(true)
+    expect(confirmedDomain).to.equal('app.example.com')
+    expect(requests).to.include('POST /v10/projects/prj_123/domains')
+    expect(requests).not.to.include('DELETE /v9/projects/prj_old/domains/app.example.com')
+    expect(dnsBodies).to.have.length(1)
+  })
+
+  it('cancels a DNS override before Vercel or DNS writes', async () => {
+    const requests: string[] = []
+    process.env.VERCEL_TOKEN = 'vercel_token'
+    process.env.CLOUDFLARE_API_TOKEN = 'cloudflare_token'
+    process.env.CLOUDFLARE_ACCOUNT_ID = 'account_123'
+
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input))
+      const method = init?.method ?? 'GET'
+      requests.push(`${method} ${url.pathname}`)
+
+      if (url.hostname === 'api.vercel.com') {
+        if (method === 'GET' && url.pathname === '/v6/domains/app.example.com/config') return jsonResponse({})
+        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains') return jsonResponse({name: 'app.example.com', verified: true})
+      }
+
+      if (url.hostname === 'api.cloudflare.com') {
+        if (method === 'GET' && url.pathname === '/client/v4/zones') return jsonResponse(cloudflareResponse([{id: 'zone_1', name: 'example.com'}]))
+        if (method === 'GET' && url.pathname === '/client/v4/zones/zone_1/dns_records') {
+          return jsonResponse(
+            cloudflareResponse([{content: 'old.example.com', id: 'record_old', name: 'app.example.com', ttl: 3600, type: 'CNAME'}]),
+          )
+        }
+      }
+
+      throw new Error(`Unexpected request: ${method} ${url.href}`)
+    }) as typeof fetch
+
+    let error: unknown
+    try {
+      await linkDomain({confirmDnsOverride: async () => false, domain: 'app.example.com', project: 'prj_123', provider: 'cloudflare', wait: false})
+    } catch (error_) {
+      error = error_
+    }
+
+    expect(error).to.be.instanceOf(DoomainError)
+    expect((error as DoomainError).code).to.equal('DNS_TARGET_CONFLICT')
+    expect(requests).not.to.include('POST /v10/projects/prj_123/domains')
+    expect(requests.some((request) => request.startsWith('PUT /client/v4/zones/zone_1/dns_records'))).to.equal(false)
+  })
+
+  it('does not prompt when the existing DNS target already matches Vercel', async () => {
+    let prompted = false
+    process.env.VERCEL_TOKEN = 'vercel_token'
+    process.env.CLOUDFLARE_API_TOKEN = 'cloudflare_token'
+    process.env.CLOUDFLARE_ACCOUNT_ID = 'account_123'
+
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input))
+      const method = init?.method ?? 'GET'
+
+      if (url.hostname === 'api.vercel.com') {
+        if (method === 'GET' && url.pathname === '/v6/domains/app.example.com/config') return jsonResponse({})
+        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains') return jsonResponse({name: 'app.example.com', verified: true})
+        if (method === 'GET' && url.pathname === '/v9/projects/prj_123/domains/app.example.com') {
+          return jsonResponse({name: 'app.example.com', verified: true})
+        }
+      }
+
+      if (url.hostname === 'api.cloudflare.com') {
+        if (method === 'GET' && url.pathname === '/client/v4/zones') return jsonResponse(cloudflareResponse([{id: 'zone_1', name: 'example.com'}]))
+        if (method === 'GET' && url.pathname === '/client/v4/zones/zone_1/dns_records') {
+          return jsonResponse(
+            cloudflareResponse([
+              {content: 'cname.vercel-dns.com', id: 'record_existing', name: 'app.example.com', proxied: false, ttl: 3600, type: 'CNAME'},
+            ]),
+          )
+        }
+      }
+
+      throw new Error(`Unexpected request: ${method} ${url.href}`)
+    }) as typeof fetch
+
+    const result = await linkDomain({
+      confirmDnsOverride: async () => {
+        prompted = true
+        return false
+      },
+      domain: 'app.example.com',
+      project: 'prj_123',
+      provider: 'cloudflare',
+      wait: false,
+    })
+
+    expect(result.dns.updated).to.equal(false)
+    expect(prompted).to.equal(false)
+  })
+
   it('extracts Vercel ownership TXT verification records', () => {
     const records = verificationRecords(
       {

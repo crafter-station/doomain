@@ -4,7 +4,7 @@ import * as p from '@clack/prompts'
 import {loadConfig, maskSecret, updateConfig} from '../lib/config.js'
 import {DoomainError} from '../lib/errors.js'
 import {jsonFlag} from '../lib/flags.js'
-import {createLinkPlan, linkDomain} from '../lib/link-domain.js'
+import {createLinkPlan, linkDomain, type DnsOverrideWarning} from '../lib/link-domain.js'
 import {detectLocalVercelProject} from '../lib/local-vercel.js'
 import {createOutput, outputError} from '../lib/output.js'
 import {
@@ -195,9 +195,35 @@ async function promptVercelToken(globalTokens: GlobalVercelToken[]): Promise<str
   return promptRequired('Vercel token', {password: true})
 }
 
+function recordName(name: string): string {
+  return name === '@' ? 'root' : name
+}
+
+function recordLine(record: {name: string; priority?: number; proxied?: boolean; ttl?: number; type: string; value: string}): string {
+  const details = [
+    record.priority === undefined ? undefined : `priority ${record.priority}`,
+    record.proxied === undefined ? undefined : `proxied ${record.proxied}`,
+    record.ttl === undefined ? undefined : `ttl ${record.ttl}`,
+  ].filter(Boolean)
+
+  return `${record.type} ${recordName(record.name)} -> ${record.value}${details.length > 0 ? ` (${details.join(', ')})` : ''}`
+}
+
 function recordPreview(record: DnsRecordInput, providerName: string): string {
-  const name = record.name === '@' ? 'root' : record.name
-  return `DNS: ${record.type} ${name} -> ${record.value} in ${providerName}`
+  return `DNS: ${recordLine(record)} in ${providerName}`
+}
+
+function dnsOverrideNote(warning: DnsOverrideWarning): string {
+  const account = warning.account === DEFAULT_PROVIDER_ACCOUNT ? warning.providerName : `${warning.providerName}/${warning.account}`
+  return [
+    `${warning.domain} already has DNS records in ${account} (${warning.zoneDomain}) that do not match the Vercel target.`,
+    '',
+    'Existing:',
+    ...warning.conflicts.map((conflict) => `- ${recordLine(conflict.existing)}`),
+    '',
+    'Desired:',
+    ...warning.desired.map((record) => `- ${recordLine(record)}`),
+  ].join('\n')
 }
 
 export default class Wizard extends Command {
@@ -463,6 +489,21 @@ export default class Wizard extends Command {
         subdomain,
         apex,
         project,
+        confirmDnsOverride: async (warning) => {
+          spinner.stop('Existing DNS target found')
+          p.note(dnsOverrideNote(warning), 'DNS already points elsewhere')
+          const confirmed = await p.confirm({
+            message: `Override existing DNS records for ${warning.domain}?`,
+            initialValue: false,
+          })
+          if (confirmed === true) {
+            spinner.start('Continuing domain link')
+            return true
+          }
+
+          activeSpinner = undefined
+          return false
+        },
         progress: ({message}) => spinner.message(message),
         wait: true,
       })

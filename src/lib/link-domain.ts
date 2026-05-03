@@ -14,7 +14,7 @@ import {
 } from './providers/core/config.js'
 import {createProvider, getProviderDefinition, listProviderDefinitions} from './providers/registry.js'
 import {listProviderStatuses} from './providers/status.js'
-import type {DnsProvider, DnsProviderDefinition, DnsRecordInput, DnsZone} from './providers/types.js'
+import type {DnsConflict, DnsProvider, DnsProviderDefinition, DnsRecordInput, DnsZone} from './providers/types.js'
 import {normalizeDomain, normalizeSubdomain} from './validate.js'
 import {createVercelClient, resolveVercelConfig, VERCEL_APEX_A_RECORD, VERCEL_CNAME_RECORD, type VercelProject} from './vercel.js'
 
@@ -30,12 +30,15 @@ export interface LinkDomainInput {
   wait?: boolean
   timeoutSeconds?: number
   progress?: LinkDomainProgressCallback
+  confirmDnsOverride?: (warning: DnsOverrideWarning) => Promise<boolean>
 }
 
 export type LinkDomainProjectSource = 'config' | 'env' | 'flag' | 'packageJson' | 'vercelProjectFile'
 
 export type LinkDomainProgressStage =
   | 'dns:apply'
+  | 'dns:inspect'
+  | 'dns:override-confirm'
   | 'dns:plan'
   | 'dns:resolve-zone'
   | 'dns:wait'
@@ -50,6 +53,17 @@ export interface LinkDomainProgress {
 }
 
 export type LinkDomainProgressCallback = (progress: LinkDomainProgress) => void
+
+export interface DnsOverrideWarning {
+  account: string
+  conflicts: DnsConflict[]
+  desired: DnsRecordInput[]
+  domain: string
+  provider: string
+  providerName: string
+  recordName: string
+  zoneDomain: string
+}
 
 export interface LinkDomainPlan {
   provider: string
@@ -669,6 +683,49 @@ function reportProgress(input: LinkDomainInput, stage: LinkDomainProgressStage, 
   input.progress?.({message, stage})
 }
 
+function dnsTargetConflictError(warning: DnsOverrideWarning): DoomainError {
+  return new DoomainError(
+    'DNS_TARGET_CONFLICT',
+    `${warning.domain} already has DNS records that point somewhere else. Re-run with --force to overwrite them.`,
+    {
+      account: warning.account,
+      conflicts: warning.conflicts,
+      desired: warning.desired,
+      domain: warning.domain,
+      provider: warning.provider,
+      providerName: warning.providerName,
+      recovery: 'Confirm the DNS override in interactive mode, or re-run with --force to overwrite conflicting DNS records.',
+      recordName: warning.recordName,
+      suggestedCommands: [`doomain link ${warning.domain} --project <project> --force --json`],
+      zoneDomain: warning.zoneDomain,
+    },
+  )
+}
+
+async function resolveDnsForce(input: LinkDomainInput, opts: {baseRecord: DnsRecordInput; plan: LinkDomainPlan; provider: DnsProvider; zone: DnsZone}): Promise<boolean> {
+  reportProgress(input, 'dns:inspect', `Checking existing DNS records in ${opts.provider.name}`)
+  const dnsPlan = await opts.provider.planChanges(opts.zone, [opts.baseRecord], {force: input.force})
+
+  if (input.force || dnsPlan.conflicts.length === 0) return Boolean(input.force)
+
+  const warning: DnsOverrideWarning = {
+    account: opts.plan.account,
+    conflicts: dnsPlan.conflicts,
+    desired: [opts.baseRecord],
+    domain: opts.plan.domain,
+    provider: opts.plan.provider,
+    providerName: opts.provider.name,
+    recordName: opts.plan.recordName,
+    zoneDomain: opts.plan.zoneDomain,
+  }
+
+  reportProgress(input, 'dns:override-confirm', `Existing DNS records point ${opts.plan.domain} somewhere else`)
+  const confirmed = await input.confirmDnsOverride?.(warning)
+  if (!confirmed) throw dnsTargetConflictError(warning)
+
+  return true
+}
+
 export async function createLinkPlan(input: LinkDomainInput): Promise<LinkDomainPlan> {
   const project = await resolveProject(input.project)
   const resolved = await resolveProviderTarget(input)
@@ -709,22 +766,23 @@ export async function linkDomain(input: LinkDomainInput): Promise<LinkDomainResu
   const provider = await createProvider(plan.provider, {account: plan.account})
   reportProgress(input, 'dns:resolve-zone', `Finding ${provider.name} DNS zone`)
   const zone = await resolveZone(provider, plan.zoneDomain)
-  reportProgress(input, 'vercel:add-domain', 'Adding domain to Vercel')
-  const addResult = await vercel.addDomainToProject(plan.project, plan.domain, {force: input.force})
   reportProgress(input, 'vercel:get-target', 'Reading Vercel DNS target')
   const cname = plan.isApex ? undefined : await vercel.getRecommendedCname(plan.domain)
+  const baseRecord = planBaseRecord({isApex: plan.isApex, provider: plan.provider, recordName: plan.recordName, cname})
+  const forceDns = await resolveDnsForce(input, {baseRecord, plan, provider, zone})
+  reportProgress(input, 'vercel:add-domain', 'Adding domain to Vercel')
+  const addResult = await vercel.addDomainToProject(plan.project, plan.domain, {force: input.force})
   reportProgress(input, 'vercel:get-domain', 'Reading Vercel verification records')
   const projectDomain = await vercel.getProjectDomain(plan.project, plan.domain)
-  const baseRecord = planBaseRecord({isApex: plan.isApex, provider: plan.provider, recordName: plan.recordName, cname})
   const verificationDnsRecords = uniqueRecords([
     ...planVerificationRecords(plan.provider, addResult.raw, plan.zoneDomain),
     ...planVerificationRecords(plan.provider, projectDomain, plan.zoneDomain),
   ])
   const records = [baseRecord, ...verificationDnsRecords]
   reportProgress(input, 'dns:plan', `Reading ${provider.name} DNS records`)
-  const dnsPlan = await provider.planChanges(zone, records, {force: input.force})
+  const dnsPlan = await provider.planChanges(zone, records, {force: forceDns})
   reportProgress(input, 'dns:apply', `Updating DNS records in ${provider.name}`)
-  const dnsResult = await provider.applyChanges(zone, dnsPlan, {force: input.force})
+  const dnsResult = await provider.applyChanges(zone, dnsPlan, {force: forceDns})
 
   const shouldWait = input.wait ?? true
   if (shouldWait) {
@@ -738,7 +796,7 @@ export async function linkDomain(input: LinkDomainInput): Promise<LinkDomainResu
   const waitResult = shouldWait
     ? await waitForVercelDomainReady({
         domain: plan.domain,
-        force: input.force,
+        force: forceDns,
         input,
         project: plan.project,
         provider,
