@@ -43,6 +43,10 @@ function credentialFromSavedConfig(config: DoomainConfig, providerId: string, ac
   return undefined
 }
 
+function hasCredentials(credentials?: Record<string, string>): boolean {
+  return credentials !== undefined && Object.keys(credentials).length > 0
+}
+
 export function getProviderCredentials(
   config: DoomainConfig,
   providerId: string,
@@ -63,6 +67,33 @@ export function getProviderCredential(
 ): string | undefined {
   const account = normalizeProviderAccount(opts.account)
   return process.env[credential.env] || credentialFromSavedConfig(config, providerId, account, credential.key)
+}
+
+export function providerAccountHasCredentials(config: DoomainConfig, providerId: string, accountInput?: string): boolean {
+  const account = normalizeProviderAccount(accountInput)
+  const current = providerConfig(config, providerId)
+  if (!current) return false
+
+  if (account !== DEFAULT_PROVIDER_ACCOUNT) return hasCredentials(current.accounts?.[account]?.credentials)
+
+  return hasCredentials(current.credentials) || Boolean(legacyCredential(config, providerId, 'apiKey') || legacyCredential(config, providerId, 'apiSecret'))
+}
+
+export function withProviderAccountCredentials(
+  current: ProviderConfig | undefined,
+  accountInput: string,
+  credentials: Record<string, string>,
+): ProviderConfig {
+  const account = normalizeProviderAccount(accountInput)
+  if (account === DEFAULT_PROVIDER_ACCOUNT) return {...current, credentials}
+
+  return {
+    ...current,
+    accounts: {
+      ...current?.accounts,
+      [account]: {credentials},
+    },
+  }
 }
 
 export function isProviderAccountConfigured(

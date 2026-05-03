@@ -6,6 +6,7 @@ import {runCommand} from '@oclif/test'
 import {expect} from 'chai'
 
 import {loadConfig, saveConfig} from '../../src/lib/config.js'
+import {providerAccountHasCredentials, withProviderAccountCredentials} from '../../src/lib/providers/core/config.js'
 
 describe('providers', () => {
   const originalFetch = globalThis.fetch
@@ -34,6 +35,58 @@ describe('providers', () => {
   function jsonResponse(body: unknown): Response {
     return {json: async () => body, ok: true, status: 200} as Response
   }
+
+  it('detects saved provider account credentials', () => {
+    expect(
+      providerAccountHasCredentials(
+        {providers: {spaceship: {accounts: {work: {credentials: {apiKey: 'work_key'}}}, credentials: {apiKey: 'default_key'}}}},
+        'spaceship',
+      ),
+    ).to.equal(true)
+    expect(providerAccountHasCredentials({providers: {spaceship: {apiKey: 'legacy_key', apiSecret: 'legacy_secret'}}}, 'spaceship')).to.equal(
+      true,
+    )
+    expect(
+      providerAccountHasCredentials(
+        {providers: {spaceship: {accounts: {work: {credentials: {apiKey: 'work_key', apiSecret: 'work_secret'}}}}}},
+        'spaceship',
+        'work',
+      ),
+    ).to.equal(true)
+  })
+
+  it('writes default provider account credentials without removing named accounts', () => {
+    const config = withProviderAccountCredentials(
+      {accounts: {work: {credentials: {apiKey: 'work_key', apiSecret: 'work_secret'}}}, settings: {region: 'us'}},
+      'default',
+      {apiKey: 'default_key', apiSecret: 'default_secret'},
+    )
+
+    expect(config).to.deep.equal({
+      accounts: {work: {credentials: {apiKey: 'work_key', apiSecret: 'work_secret'}}},
+      credentials: {apiKey: 'default_key', apiSecret: 'default_secret'},
+      settings: {region: 'us'},
+    })
+  })
+
+  it('writes named provider account credentials without removing other accounts', () => {
+    const config = withProviderAccountCredentials(
+      {
+        accounts: {personal: {credentials: {apiKey: 'personal_key', apiSecret: 'personal_secret'}}},
+        credentials: {apiKey: 'default_key', apiSecret: 'default_secret'},
+      },
+      'work',
+      {apiKey: 'work_key', apiSecret: 'work_secret'},
+    )
+
+    expect(config).to.deep.equal({
+      accounts: {
+        personal: {credentials: {apiKey: 'personal_key', apiSecret: 'personal_secret'}},
+        work: {credentials: {apiKey: 'work_key', apiSecret: 'work_secret'}},
+      },
+      credentials: {apiKey: 'default_key', apiSecret: 'default_secret'},
+    })
+  })
 
   it('reports provider configuration status without verification', async () => {
     const {stdout} = await runCommand('providers status --no-verify --json')
@@ -89,6 +142,19 @@ describe('providers', () => {
     expect(result.data.isDefaultAccount).to.equal(false)
     expect(config.providers?.spaceship?.credentials).to.deep.equal({apiKey: 'default_key', apiSecret: 'default_secret'})
     expect(config.providers?.spaceship?.accounts?.work?.credentials).to.deep.equal({apiKey: 'work_key', apiSecret: 'work_secret'})
+  })
+
+  it('connects the default provider account in JSON mode when --account is omitted', async () => {
+    const {stdout} = await runCommand(
+      'providers connect spaceship --credential apiKey=default_key --credential apiSecret=default_secret --no-verify --json',
+    )
+    const result = JSON.parse(stdout) as {data: {account: string; isDefaultAccount: boolean}; ok: boolean}
+    const config = await loadConfig()
+
+    expect(result.ok).to.equal(true)
+    expect(result.data.account).to.equal('default')
+    expect(result.data.isDefaultAccount).to.equal(true)
+    expect(config.providers?.spaceship?.credentials).to.deep.equal({apiKey: 'default_key', apiSecret: 'default_secret'})
   })
 
   it('reports default and named provider accounts in status output', async () => {

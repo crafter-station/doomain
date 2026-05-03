@@ -7,7 +7,15 @@ import {jsonFlag} from '../lib/flags.js'
 import {createLinkPlan, linkDomain} from '../lib/link-domain.js'
 import {detectLocalVercelProject} from '../lib/local-vercel.js'
 import {createOutput, outputError} from '../lib/output.js'
-import {DEFAULT_PROVIDER_ACCOUNT, listConfiguredProviderAccounts, type ProviderAccountRef} from '../lib/providers/core/config.js'
+import {
+  DEFAULT_PROVIDER_ACCOUNT,
+  isDefaultProviderAccount,
+  listConfiguredProviderAccounts,
+  normalizeProviderAccount,
+  providerAccountHasCredentials,
+  type ProviderAccountRef,
+  withProviderAccountCredentials,
+} from '../lib/providers/core/config.js'
 import {createProvider, getProviderDefinition, listProviderDefinitions} from '../lib/providers/registry.js'
 import type {CredentialDefinition, DnsProviderDefinition, DnsRecordInput, DnsZone} from '../lib/providers/types.js'
 import {listGlobalVercelTokens, type GlobalVercelToken} from '../lib/vercel-auth.js'
@@ -31,6 +39,30 @@ async function promptRequired(message: string, opts: {password?: boolean; placeh
     : await p.text({message, placeholder: opts.placeholder, validate: (input) => (input?.trim() ? undefined : 'Required')})
   const resolved = cancelIfNeeded(value)
   return typeof resolved === 'string' ? resolved.trim() : null
+}
+
+function validateProviderAccount(value: string | undefined): string | undefined {
+  try {
+    normalizeProviderAccount(value)
+    return undefined
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+}
+
+async function promptProviderAccount(): Promise<string | null> {
+  const value = await p.text({message: 'Profile name', placeholder: DEFAULT_PROVIDER_ACCOUNT, validate: validateProviderAccount})
+  const resolved = cancelIfNeeded(value)
+  return typeof resolved === 'string' ? normalizeProviderAccount(resolved) : null
+}
+
+async function confirmProviderAccountOverwrite(definition: DnsProviderDefinition, account: string): Promise<boolean> {
+  const value = await p.confirm({
+    initialValue: false,
+    message: `Profile "${account}" already exists for ${definition.displayName}. Overwrite it?`,
+  })
+  const resolved = cancelIfNeeded(value)
+  return resolved === true
 }
 
 interface ProviderDomainOption {
@@ -293,6 +325,14 @@ export default class Wizard extends Command {
         const selectedDefinition = await promptProviderDefinition(providerDefinitions, config)
         if (!selectedDefinition) return
         showProviderSetup(selectedDefinition)
+        const account = await promptProviderAccount()
+        if (!account) return
+        if (providerAccountHasCredentials(config, selectedDefinition.id, account)) {
+          const overwrite = await confirmProviderAccountOverwrite(selectedDefinition, account)
+          if (!overwrite) return
+        }
+
+        const providerAccount = {account, isDefaultAccount: isDefaultProviderAccount(account), providerId: selectedDefinition.id}
         const credentials = await promptProviderCredentials(selectedDefinition)
         if (!credentials) return
 
@@ -306,15 +346,16 @@ export default class Wizard extends Command {
         )
         activeSpinner = undefined
         domainOptions.push(
-          ...zones.map((zone) =>
-            toProviderDomainOption(selectedDefinition, {account: DEFAULT_PROVIDER_ACCOUNT, isDefaultAccount: true, providerId: selectedDefinition.id}, zone),
-          ),
+          ...zones.map((zone) => toProviderDomainOption(selectedDefinition, providerAccount, zone)),
         )
 
         await updateConfig((current) => ({
           ...current,
           defaults: {...current.defaults, provider: selectedDefinition.id},
-          providers: {...current.providers, [selectedDefinition.id]: {credentials}},
+          providers: {
+            ...current.providers,
+            [selectedDefinition.id]: withProviderAccountCredentials(current.providers?.[selectedDefinition.id], account, credentials),
+          },
           vercel: {token: vercelToken, teamId: vercelTeamId},
         }))
       } else {

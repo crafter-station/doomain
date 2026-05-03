@@ -4,7 +4,14 @@ import * as p from '@clack/prompts'
 import {getConfigPath, loadConfig, maskSecret, updateConfig} from '../../lib/config.js'
 import {accountFlag, jsonFlag} from '../../lib/flags.js'
 import {createOutput, outputError} from '../../lib/output.js'
-import {isDefaultProviderAccount, listConfiguredProviderAccounts, normalizeProviderAccount} from '../../lib/providers/core/config.js'
+import {
+  DEFAULT_PROVIDER_ACCOUNT,
+  isDefaultProviderAccount,
+  listConfiguredProviderAccounts,
+  normalizeProviderAccount,
+  providerAccountHasCredentials,
+  withProviderAccountCredentials,
+} from '../../lib/providers/core/config.js'
 import {getProviderDefinition, listProviderDefinitions} from '../../lib/providers/registry.js'
 import type {CredentialDefinition, DnsProviderDefinition} from '../../lib/providers/types.js'
 
@@ -64,6 +71,38 @@ async function promptCredential(credential: CredentialDefinition, detectedPublic
   return typeof value === 'string' && value.trim() ? value.trim() : null
 }
 
+function validateProviderAccount(value: string | undefined): string | undefined {
+  try {
+    normalizeProviderAccount(value)
+    return undefined
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+}
+
+async function promptProviderAccount(): Promise<string | null> {
+  const value = await p.text({message: 'Profile name', placeholder: DEFAULT_PROVIDER_ACCOUNT, validate: validateProviderAccount})
+  if (p.isCancel(value)) {
+    p.cancel('Cancelled')
+    return null
+  }
+
+  return normalizeProviderAccount(value)
+}
+
+async function confirmProviderAccountOverwrite(definition: DnsProviderDefinition, account: string): Promise<boolean> {
+  const value = await p.confirm({
+    initialValue: false,
+    message: `Profile "${account}" already exists for ${definition.displayName}. Overwrite it?`,
+  })
+  if (p.isCancel(value)) {
+    p.cancel('Cancelled')
+    return false
+  }
+
+  return value
+}
+
 async function promptProvider(): Promise<DnsProviderDefinition | null> {
   const config = await loadConfig()
   const selected = await p.select({
@@ -119,8 +158,15 @@ export default class ProvidersConnect extends Command {
       if (!args.provider && out.json) throw new Error('Missing provider. Pass a provider id, for example `namecheap`.')
       const definition = args.provider ? getProviderDefinition(args.provider) : await promptProvider()
       if (!definition) return
-      const account = normalizeProviderAccount(flags.account)
+      const account = flags.account ? normalizeProviderAccount(flags.account) : out.json ? DEFAULT_PROVIDER_ACCOUNT : await promptProviderAccount()
+      if (!account) return
       const isDefaultAccount = isDefaultProviderAccount(account)
+      const currentConfig = await loadConfig()
+      if (!out.json && providerAccountHasCredentials(currentConfig, definition.id, account)) {
+        const overwrite = await confirmProviderAccountOverwrite(definition, account)
+        if (!overwrite) return
+      }
+
       const passedCredentials = parseCredentialFlags(flags.credential)
       const credentials: Record<string, string> = {}
       const detectedPublicIp = !out.json && usesClientIp(definition) ? await fetchPublicIp() : undefined
@@ -169,7 +215,6 @@ export default class ProvidersConnect extends Command {
       }
 
       let setDefault = true
-      const currentConfig = await loadConfig()
       if (!out.json && currentConfig.defaults?.provider && currentConfig.defaults.provider !== definition.id) {
         const value = await p.confirm({
           initialValue: true,
@@ -188,15 +233,7 @@ export default class ProvidersConnect extends Command {
         defaults: setDefault ? {...config.defaults, provider: definition.id} : config.defaults,
         providers: {
           ...config.providers,
-          [definition.id]: isDefaultAccount
-            ? {...config.providers?.[definition.id], credentials}
-            : {
-                ...config.providers?.[definition.id],
-                accounts: {
-                  ...config.providers?.[definition.id]?.accounts,
-                  [account]: {credentials},
-                },
-              },
+          [definition.id]: withProviderAccountCredentials(config.providers?.[definition.id], account, credentials),
         },
       }))
 

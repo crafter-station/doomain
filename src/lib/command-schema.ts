@@ -55,7 +55,7 @@ export const commandSchemas: CommandSchema[] = [
     flags: [
       {name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.'},
       {name: 'provider', type: 'string', description: 'DNS provider id. Inferred from the target domain when omitted.'},
-      {name: 'account', type: 'string', description: 'DNS provider account alias. Defaults to the provider default account.'},
+      {name: 'account', type: 'string', description: 'DNS provider profile/account alias. Defaults to the provider default account.'},
       {name: 'domain', type: 'string', description: 'Target domain or base zone, for example app.example.com or example.com.'},
       {name: 'subdomain', type: 'string', description: 'Subdomain to add.'},
       {name: 'apex', type: 'boolean', description: 'Use the root/apex domain.'},
@@ -79,7 +79,7 @@ export const commandSchemas: CommandSchema[] = [
     ],
     flags: [
       {name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.'},
-      {name: 'account', type: 'string', description: 'DNS provider account alias. Defaults to the provider default account.'},
+      {name: 'account', type: 'string', description: 'DNS provider profile/account alias. Defaults to the provider default account.'},
       {name: 'credential', type: 'string', description: 'Provider credential as key=value. Can be repeated.'},
       {name: 'api-key', type: 'string', description: 'Spaceship API key.'},
       {name: 'api-secret', type: 'string', description: 'Spaceship API secret.'},
@@ -92,7 +92,7 @@ export const commandSchemas: CommandSchema[] = [
     examples: ['doomain providers add', 'doomain providers add namecheap', 'doomain providers add spaceship --account work'],
     flags: [
       {name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.'},
-      {name: 'account', type: 'string', description: 'DNS provider account alias. Defaults to the provider default account.'},
+      {name: 'account', type: 'string', description: 'DNS provider profile/account alias. Defaults to the provider default account.'},
       {name: 'credential', type: 'string', description: 'Provider credential as key=value. Can be repeated.'},
       {name: 'no-verify', type: 'boolean', description: 'Save credentials without verifying them first.'},
     ],
@@ -117,7 +117,7 @@ export const commandSchemas: CommandSchema[] = [
     ],
     flags: [
       {name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.'},
-      {name: 'account', type: 'string', description: 'DNS provider account alias. Omit to remove all accounts for the provider.'},
+      {name: 'account', type: 'string', description: 'DNS provider profile/account alias. Omit to remove all accounts for the provider.'},
     ],
   },
   {
@@ -131,7 +131,7 @@ export const commandSchemas: CommandSchema[] = [
     ],
     flags: [
       {name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.'},
-      {name: 'account', type: 'string', description: 'DNS provider account alias. Defaults to the provider default account.'},
+      {name: 'account', type: 'string', description: 'DNS provider profile/account alias. Defaults to the provider default account.'},
     ],
   },
   {

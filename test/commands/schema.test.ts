@@ -52,7 +52,7 @@ describe('schema', () => {
       isDefaultAccount: true,
     })
     expect(result.data.examples).to.include('doomain link app.example.com --provider spaceship --account work --project my-app --json')
-    expect(result.data.flags.find((flag) => flag.name === 'account')?.description).to.include('provider account alias')
+    expect(result.data.flags.find((flag) => flag.name === 'account')?.description).to.include('profile/account alias')
     expect(result.data.flags.find((flag) => flag.name === 'dry-run')?.description).to.include('agents should not use this')
   })
 })
