@@ -1,6 +1,6 @@
 # Doomain
 
-Doomain links a Vercel project to a custom domain from your terminal.
+Doomain links Vercel projects and first-time Clerk production instances to custom domains from your terminal.
 
 It handles the boring parts of custom-domain setup: selecting the Vercel project, finding the right DNS zone, adding the domain to Vercel, writing the Vercel DNS records, waiting for public DNS propagation, and asking Vercel to verify the domain.
 
@@ -16,6 +16,7 @@ Use the interactive wizard when working by hand. Use explicit commands with `--j
 - Safety checks before replacing DNS records that point elsewhere.
 - DNS propagation and Vercel verification wait loop.
 - DNS provider support for Spaceship, Namecheap, Cloudflare, and Hostinger.
+- First-time Clerk production setup with automatic CNAME configuration.
 
 ## Install
 
@@ -86,6 +87,17 @@ Apply it:
 doomain link app.example.com --project my-vercel-project --json
 ```
 
+Set up a Clerk application's first production instance and primary domain:
+
+```bash
+doomain auth clerk --platform-api-key "$CLERK_PLATFORM_API_KEY" --app app_123 --json
+doomain clerk domains add example.com --app app_123 --json
+```
+
+Create a Platform API key from the Clerk Dashboard API keys page. Platform keys start with `ak_`; Clerk instance secret keys (`sk_`) cannot create a production instance.
+
+This Clerk command intentionally aborts when the application already has a production instance. Change existing production domains manually in the Clerk Dashboard or with Clerk CLI.
+
 If JSON mode returns `DNS_TARGET_CONFLICT`, the current DNS target appears to point to another project or site. Re-run with `--force` only when you intend to replace that DNS target.
 
 ## Provider Setup
@@ -142,7 +154,7 @@ doomain providers connect cloudflare \
   --credential accountId=your_cloudflare_account_id
 ```
 
-Cloudflare records created for Vercel `A`, `AAAA`, and `CNAME` targets are set to `proxied: false` so Vercel can validate the domain.
+Cloudflare records created for Vercel or Clerk `A`, `AAAA`, and `CNAME` targets are set to `proxied: false` so the service can validate the domain.
 
 ### Hostinger
 
@@ -207,6 +219,27 @@ Use `-p` as shorthand for `--project`:
 
 ```bash
 doomain link app.example.com -p my-app
+```
+
+## Clerk Production Domains
+
+`doomain clerk domains add` mirrors Clerk CLI's initial production deployment API. It creates a production instance by cloning the application's development instance, sets the requested primary domain, writes every CNAME returned by Clerk, and optionally waits for Clerk's DNS, SSL, and email DNS status.
+
+```bash
+doomain clerk domains add example.com --app app_123
+```
+
+Use `--dry-run` to verify that the application has no production instance and that Doomain can resolve the DNS zone. Clerk only returns the exact CNAME records after production is created, so they are not included in the dry-run result.
+
+If a production instance already exists, the command returns `CLERK_PRODUCTION_EXISTS` without changing DNS. Doomain does not automate production-domain migrations because Clerk domain changes can cause downtime and require publishable-key, OAuth redirect, and deployment updates.
+
+After creation, the result includes Clerk CLI follow-up commands. Run them to link the local project, pull production keys, finish production OAuth configuration, and verify provisioning:
+
+```bash
+clerk link --app app_123
+clerk env pull --app app_123 --instance prod
+clerk deploy
+clerk deploy status
 ```
 
 ## What Gets Created
@@ -306,6 +339,7 @@ doomain providers list --json
 doomain providers status --no-verify --json
 doomain domains list --provider cloudflare --domain example.com --json
 doomain projects list --search my-app --json
+doomain clerk domains add example.com --app app_123 --json
 doomain schema --json
 doomain schema link --json
 ```
@@ -375,6 +409,28 @@ doomain auth logout vercel --json
 ```
 
 If `VERCEL_TOKEN` or `VERCEL_TEAM_ID` are still set, they continue to override local config.
+
+### `doomain auth clerk`
+
+Saves and verifies a Clerk Platform API key and default application id.
+
+```bash
+doomain auth clerk --platform-api-key ak_123 --app app_123
+```
+
+### `doomain auth logout clerk`
+
+Removes saved Clerk credentials. `CLERK_PLATFORM_API_KEY` and `CLERK_APPLICATION_ID` continue to override local config when set.
+
+### `doomain clerk domains add <domain>`
+
+Creates the application's first Clerk production instance and primary domain, then configures Clerk's returned CNAME records.
+
+```bash
+doomain clerk domains add example.com --app app_123
+doomain clerk domains add example.com --app app_123 --dry-run --json
+doomain clerk domains add example.com --app app_123 --no-wait --json
+```
 
 ### `doomain providers list`
 
@@ -489,6 +545,13 @@ Vercel:
 ```bash
 VERCEL_TOKEN
 VERCEL_TEAM_ID
+```
+
+Clerk:
+
+```bash
+CLERK_PLATFORM_API_KEY
+CLERK_APPLICATION_ID
 ```
 
 Spaceship:

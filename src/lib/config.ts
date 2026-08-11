@@ -18,6 +18,11 @@ export interface VercelConfig {
   teamId?: string
 }
 
+export interface ClerkConfig {
+  appId?: string
+  platformApiKey?: string
+}
+
 export interface ProviderAccountConfig {
   credentials?: Record<string, string>
   settings?: Record<string, unknown>
@@ -34,6 +39,7 @@ export interface SpaceshipProviderConfig extends ProviderConfig {
 }
 
 export interface DoomainConfig {
+  clerk?: ClerkConfig
   vercel?: VercelConfig
   providers?: {
     spaceship?: SpaceshipProviderConfig

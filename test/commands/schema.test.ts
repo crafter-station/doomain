@@ -72,6 +72,19 @@ describe('schema', () => {
       'domains list',
       'projects list',
       'verify',
+      'clerk domains add',
+      'auth clerk',
     ])
+  })
+
+  it('documents first-time Clerk production setup and its guardrail', async () => {
+    const {stdout} = await runCommand('schema "clerk domains add" --json')
+    const result = JSON.parse(stdout) as {data: {agentHint: string; configuredProviders: unknown[]; flags: Array<{name: string}>}; ok: boolean}
+
+    expect(result.ok).to.equal(true)
+    expect(result.data.agentHint).to.include('first-time Clerk production setup')
+    expect(result.data.agentHint).to.include('CLERK_PRODUCTION_EXISTS')
+    expect(result.data.flags.map((flag) => flag.name)).to.include.members(['app', 'provider', 'account', 'dry-run', 'force', 'wait'])
+    expect(result.data.configuredProviders).to.be.an('array')
   })
 })

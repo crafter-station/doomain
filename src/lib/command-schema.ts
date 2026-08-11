@@ -43,7 +43,7 @@ export const commandSchemas: CommandSchema[] = [
     agentHint:
       'For agent use, try `doomain link <domain> --json` first. Do not inspect project files, run provider status, or use --dry-run unless the user explicitly asks for a preview. The command infers project/provider and returns structured recovery errors when inference fails.',
     agentInstructions: [
-      'When the user asks to add or link a domain, run `doomain link <domain> --json` first.',
+      'When the user asks to add or link a Vercel domain, run `doomain link <domain> --json` first.',
       'Do not run `providers status`, `projects list`, `--help`, or `--dry-run` before the first link attempt unless the user asks for a preview or diagnosis.',
       'Only run follow-up commands when the JSON error includes a recovery action that requires them.',
     ],
@@ -72,6 +72,34 @@ export const commandSchemas: CommandSchema[] = [
         description: 'Move existing Vercel project domains and overwrite conflicting DNS records. Interactive DNS override confirmation does not move Vercel aliases; pass --force for that.',
       },
       {name: 'wait', type: 'boolean', description: 'Wait for DNS and Vercel verification. Use --no-wait to skip waiting.', default: true},
+      {name: 'timeout', type: 'integer', description: 'Wait timeout in seconds.', default: 300},
+    ],
+  },
+  {
+    name: 'clerk domains add',
+    description: 'Create the first Clerk production instance with its primary domain and configure returned DNS records.',
+    examples: [
+      'doomain clerk domains add example.com --app app_123 --json',
+      'doomain clerk domains add example.com --app app_123 --provider cloudflare --no-wait --json',
+      'doomain clerk domains add example.com --app app_123 --dry-run --json',
+    ],
+    agentHint:
+      'Use only for first-time Clerk production setup. The command aborts with CLERK_PRODUCTION_EXISTS when production already exists; domain changes must then be completed manually in Clerk.',
+    agentInstructions: [
+      'When the user asks to configure a Clerk production domain for the first time, run `doomain clerk domains add <domain> --app <app_id> --json`.',
+      'Never use this command to migrate or replace an existing Clerk production domain.',
+      'After success, follow the returned nextSteps to pull production keys, finish OAuth setup, and verify provisioning with Clerk CLI.',
+    ],
+    mutates: true,
+    safeForAgents: true,
+    flags: [
+      {name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.'},
+      {name: 'app', type: 'string', description: 'Clerk application id. Defaults to CLERK_APPLICATION_ID or saved Clerk config.'},
+      {name: 'provider', type: 'string', description: 'DNS provider id. Inferred from the target domain when omitted.'},
+      {name: 'account', type: 'string', description: 'DNS provider profile/account alias. Defaults to the provider default account.'},
+      {name: 'dry-run', type: 'boolean', description: 'Check application eligibility and DNS zone without creating production.'},
+      {name: 'force', type: 'boolean', description: 'Overwrite DNS records that conflict with Clerk requirements.'},
+      {name: 'wait', type: 'boolean', description: 'Wait for Clerk DNS, SSL, and email DNS verification. Use --no-wait to skip waiting.', default: true},
       {name: 'timeout', type: 'integer', description: 'Wait timeout in seconds.', default: 300},
     ],
   },
@@ -162,6 +190,24 @@ export const commandSchemas: CommandSchema[] = [
     ],
   },
   {
+    name: 'auth clerk',
+    description: 'Save and verify Clerk Platform API credentials locally.',
+    examples: ['doomain auth clerk --platform-api-key ak_123 --app app_123 --json', 'doomain auth clerk'],
+    flags: [
+      {name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.'},
+      {name: 'platform-api-key', type: 'string', description: 'Clerk Platform API key (ak_...).'},
+      {name: 'app', type: 'string', description: 'Default Clerk application id.'},
+    ],
+  },
+  {
+    name: 'auth logout clerk',
+    description: 'Remove saved Clerk credentials locally.',
+    examples: ['doomain auth logout clerk --json'],
+    flags: [
+      {name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.'},
+    ],
+  },
+  {
     name: 'auth vercel',
     description: 'Save Vercel credentials locally.',
     examples: ['doomain auth vercel --token token --team-id team_123 --json', 'doomain auth vercel'],
@@ -235,7 +281,7 @@ async function configuredProviders(): Promise<ProviderConnectionStatus[]> {
 }
 
 function withProviderConnections(schema: CommandSchema, providers: ProviderConnectionStatus[]): CommandSchema {
-  if (schema.name !== 'link') return schema
+  if (schema.name !== 'link' && schema.name !== 'clerk domains add') return schema
   return {...schema, configuredProviders: providers}
 }
 

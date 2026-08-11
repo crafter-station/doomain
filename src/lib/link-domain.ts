@@ -246,7 +246,7 @@ async function providerConnectionDetails() {
   }))
 }
 
-interface ResolvedTarget {
+export interface ResolvedDnsTarget {
   provider: string
   providerInferred: boolean
   account: string
@@ -278,7 +278,7 @@ function zoneMatchesDomain(fullDomain: string, zoneDomain: string, forceExactZon
   return fullDomain.endsWith(`.${zoneDomain}`)
 }
 
-function targetFromZone(fullDomain: string, zoneDomain: string): ResolvedTarget['target'] {
+function targetFromZone(fullDomain: string, zoneDomain: string): ResolvedDnsTarget['target'] {
   if (fullDomain === zoneDomain) {
     return {fullDomain, isApex: true, recordName: '@', zoneDomain}
   }
@@ -404,7 +404,7 @@ async function loadConfiguredProviderZones(providerId?: string, accountInput?: s
   }
 }
 
-async function resolveProviderTarget(input: LinkDomainInput): Promise<ResolvedTarget> {
+export async function resolveProviderTarget(input: Pick<LinkDomainInput, 'account' | 'apex' | 'domain' | 'provider' | 'subdomain'>): Promise<ResolvedDnsTarget> {
   const requested = resolveRequestedDomain({
     apex: input.apex,
     domain: await resolveConfiguredDomain(input.domain),
@@ -459,7 +459,7 @@ async function resolveProviderTarget(input: LinkDomainInput): Promise<ResolvedTa
   }
 }
 
-function withProviderRecordOptions(provider: string, record: DnsRecordInput): DnsRecordInput {
+export function withProviderRecordOptions(provider: string, record: DnsRecordInput): DnsRecordInput {
   if (provider !== 'cloudflare' || !['A', 'AAAA', 'CNAME'].includes(record.type)) return record
   return {...record, proxied: false}
 }

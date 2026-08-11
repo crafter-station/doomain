@@ -16,6 +16,8 @@ describe('auth', () => {
     process.env = {...env, DOOMAIN_CONFIG_FILE: join(dir, 'config.json')}
     delete process.env.VERCEL_TOKEN
     delete process.env.VERCEL_TEAM_ID
+    delete process.env.CLERK_APPLICATION_ID
+    delete process.env.CLERK_PLATFORM_API_KEY
   })
 
   afterEach(() => {
@@ -53,5 +55,24 @@ describe('auth', () => {
     expect(result.ok).to.equal(true)
     expect(result.data.vercel).to.deep.equal({teamId: 'team_env', token: 'env_...oken'})
     expect(config.vercel).to.deep.equal({teamId: 'team_env', token: 'env_vercel_token'})
+  })
+
+  it('saves verified Clerk Platform API credentials in JSON mode', async () => {
+    const originalFetch = globalThis.fetch
+    process.env.CLERK_PLATFORM_API_KEY = 'ak_env_clerk_token'
+    process.env.CLERK_APPLICATION_ID = 'app_123'
+    globalThis.fetch = (async () => new Response(JSON.stringify({application_id: 'app_123', instances: []}), {status: 200})) as typeof fetch
+
+    try {
+      const {stdout} = await runCommand('auth clerk --json')
+      const result = JSON.parse(stdout) as {data: {clerk: {appId: string; platformApiKey: string}}; ok: boolean}
+      const config = await loadConfig()
+
+      expect(result.ok).to.equal(true)
+      expect(result.data.clerk).to.deep.equal({appId: 'app_123', platformApiKey: 'ak_e...oken'})
+      expect(config.clerk).to.deep.equal({appId: 'app_123', platformApiKey: 'ak_env_clerk_token'})
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 })
