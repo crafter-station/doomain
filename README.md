@@ -337,6 +337,7 @@ Useful agent-safe commands:
 doomain link app.example.com --project my-app --json
 doomain providers list --json
 doomain providers status --no-verify --json
+doomain domains find hacktheandes.com --json
 doomain domains list --provider cloudflare --domain example.com --json
 doomain projects list --search my-app --json
 doomain clerk domains add example.com --app app_123 --json
@@ -350,6 +351,19 @@ The schema command prints machine-readable metadata for the documented command c
 doomain schema --json
 doomain schema "providers connect" --json
 ```
+
+## Programmatic API
+
+Use `findDomainProvider` to perform the same discovery from TypeScript or JavaScript:
+
+```ts
+import {findDomainProvider} from 'doomain'
+
+const match = await findDomainProvider({domain: 'api.hacktheandes.com'})
+console.log(match.provider, match.account, match.zoneDomain)
+```
+
+The API checks configured provider accounts, tolerates failures from individual providers, and returns the longest matching DNS zone. Pass `provider` or `account` to constrain the search. When a provider cannot be checked, `complete` is `false` and `warnings` identifies the affected provider account.
 
 ## Command Reference
 
@@ -496,6 +510,18 @@ doomain providers logout namecheap --json
 ```
 
 Environment variables for that provider still override local config after disconnect.
+
+### `doomain domains find [domain]`
+
+Finds the configured DNS provider account with the longest matching zone. It checks all configured accounts and continues when an individual provider fails, so one expired credential does not hide a match from another provider.
+
+```bash
+doomain domains find hacktheandes.com --json
+doomain domains find api.example.com --json
+doomain domains find --domain example.com --provider spaceship --account personal --json
+```
+
+Successful JSON includes the provider, account, matching zone, and relative DNS record name. Check `complete` and `warnings` before treating the result as exhaustive; for example, an expired token may prevent one provider from participating in discovery.
 
 ### `doomain domains list`
 

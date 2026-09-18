@@ -69,12 +69,27 @@ describe('schema', () => {
     expect(result.data.map((schema) => schema.name)).to.include.members([
       'schema',
       'providers list',
+      'domains find',
       'domains list',
       'projects list',
       'verify',
       'clerk domains add',
       'auth clerk',
     ])
+  })
+
+  it('documents domain provider discovery for agents', async () => {
+    const {stdout} = await runCommand('schema "domains find" --json')
+    const result = JSON.parse(stdout) as {
+      data: {agentHint: string; examples: string[]; flags: Array<{name: string}>; safeForAgents: boolean}
+      ok: boolean
+    }
+
+    expect(result.ok).to.equal(true)
+    expect(result.data.safeForAgents).to.equal(true)
+    expect(result.data.agentHint).to.include('checks all configured provider accounts')
+    expect(result.data.examples).to.include('doomain domains find hacktheandes.com --json')
+    expect(result.data.flags.map((flag) => flag.name)).to.include.members(['domain', 'provider', 'account', 'json'])
   })
 
   it('documents first-time Clerk production setup and its guardrail', async () => {

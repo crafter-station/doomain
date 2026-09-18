@@ -1,0 +1,356 @@
+import {loadConfig} from './config.js'
+import {DoomainError, type DoomainErrorCode} from './errors.js'
+import {
+  DEFAULT_PROVIDER_ACCOUNT,
+  isDefaultProviderAccount,
+  listConfiguredProviderAccounts,
+  normalizeProviderAccount,
+  type ProviderAccountRef,
+} from './providers/core/config.js'
+import {createProvider, getProviderDefinition, listProviderDefinitions} from './providers/registry.js'
+import {listProviderStatuses} from './providers/status.js'
+import type {DnsProviderDefinition, DnsZone} from './providers/types.js'
+import {normalizeDomain, normalizeSubdomain} from './validate.js'
+
+export interface FindDomainProviderInput {
+  account?: string
+  domain: string
+  provider?: string
+}
+
+export interface ProviderSearchWarning {
+  account: string
+  error: {
+    code?: DoomainErrorCode
+    message: string
+  }
+  isDefaultAccount: boolean
+  provider: string
+  providerName: string
+}
+
+export interface DomainProviderResult {
+  account: string
+  accountInferred: boolean
+  complete: boolean
+  domain: string
+  isApex: boolean
+  isDefaultAccount: boolean
+  provider: string
+  providerInferred: boolean
+  recordName: string
+  warnings: ProviderSearchWarning[]
+  zoneDomain: string
+}
+
+export interface ResolveProviderTargetInput extends FindDomainProviderInput {
+  apex?: boolean
+  subdomain?: string
+}
+
+export interface ResolvedDnsTarget {
+  account: string
+  accountInferred: boolean
+  isDefaultAccount: boolean
+  provider: string
+  providerInferred: boolean
+  target: {
+    fullDomain: string
+    isApex: boolean
+    recordName: string
+    zoneDomain: string
+  }
+  warnings: ProviderSearchWarning[]
+}
+
+interface RequestedDomain {
+  forceExactZone: boolean
+  fullDomain: string
+}
+
+interface ProviderZoneCandidate {
+  account: string
+  isDefaultAccount: boolean
+  provider: string
+  providerName: string
+  zone: DnsZone
+}
+
+interface ProviderZoneSearchResult {
+  account: string
+  displayName: string
+  error?: ProviderSearchWarning['error']
+  id: string
+  isDefaultAccount: boolean
+  zones: string[]
+}
+
+function resolveRequestedDomain(opts: ResolveProviderTargetInput): RequestedDomain {
+  if (opts.apex && opts.subdomain) {
+    throw new DoomainError('INVALID_INPUT', 'Use either --apex or --subdomain, not both.')
+  }
+
+  const domain = normalizeDomain(opts.domain)
+  if (opts.apex) return {forceExactZone: true, fullDomain: domain}
+  if (!opts.subdomain) return {forceExactZone: false, fullDomain: domain}
+
+  return {forceExactZone: false, fullDomain: `${normalizeSubdomain(opts.subdomain)}.${domain}`}
+}
+
+function zoneMatchesDomain(fullDomain: string, zoneDomain: string, forceExactZone: boolean): boolean {
+  if (fullDomain === zoneDomain) return true
+  if (forceExactZone) return false
+  return fullDomain.endsWith(`.${zoneDomain}`)
+}
+
+function targetFromZone(fullDomain: string, zoneDomain: string): ResolvedDnsTarget['target'] {
+  if (fullDomain === zoneDomain) {
+    return {fullDomain, isApex: true, recordName: '@', zoneDomain}
+  }
+
+  return {
+    fullDomain,
+    isApex: false,
+    recordName: fullDomain.slice(0, -(zoneDomain.length + 1)),
+    zoneDomain,
+  }
+}
+
+function candidateDetails(candidates: ProviderZoneCandidate[]) {
+  return candidates.map((candidate) => ({
+    account: candidate.account,
+    isDefaultAccount: candidate.isDefaultAccount,
+    provider: candidate.provider,
+    providerName: candidate.providerName,
+    zoneDomain: candidate.zone.name,
+  }))
+}
+
+function defaultAccountRef(providerId: string): ProviderAccountRef {
+  return {account: DEFAULT_PROVIDER_ACCOUNT, isDefaultAccount: true, providerId}
+}
+
+function explicitAccountRef(providerId: string, account: string): ProviderAccountRef {
+  const normalized = normalizeProviderAccount(account)
+  return {account: normalized, isDefaultAccount: isDefaultProviderAccount(normalized), providerId}
+}
+
+function searchError(error: unknown): ProviderSearchWarning['error'] {
+  return {
+    ...(error instanceof DoomainError ? {code: error.code} : {}),
+    message: error instanceof Error ? error.message : String(error),
+  }
+}
+
+async function loadProviderZones(definition: DnsProviderDefinition, account: ProviderAccountRef): Promise<{
+  candidates: ProviderZoneCandidate[]
+  search: ProviderZoneSearchResult
+}> {
+  const provider = await createProvider(definition.id, {account: account.account})
+  const zones = await provider.listZones()
+  return {
+    candidates: zones.map((zone) => ({
+      account: account.account,
+      isDefaultAccount: account.isDefaultAccount,
+      provider: definition.id,
+      providerName: definition.displayName,
+      zone,
+    })),
+    search: {
+      account: account.account,
+      displayName: definition.displayName,
+      id: definition.id,
+      isDefaultAccount: account.isDefaultAccount,
+      zones: zones.map((zone) => zone.name),
+    },
+  }
+}
+
+async function loadProviderZonesSafely(definition: DnsProviderDefinition, account: ProviderAccountRef) {
+  try {
+    return await loadProviderZones(definition, account)
+  } catch (error) {
+    return {
+      candidates: [],
+      search: {
+        account: account.account,
+        displayName: definition.displayName,
+        error: searchError(error),
+        id: definition.id,
+        isDefaultAccount: account.isDefaultAccount,
+        zones: [],
+      },
+    }
+  }
+}
+
+async function providerConnectionDetails() {
+  return (await listProviderStatuses({verify: false})).map((provider) => ({
+    configured: provider.configured,
+    account: provider.account,
+    default: provider.default,
+    displayName: provider.displayName,
+    docsUrl: provider.docsUrl,
+    id: provider.id,
+    isDefaultAccount: provider.isDefaultAccount,
+  }))
+}
+
+function searchWarnings(searches: ProviderZoneSearchResult[]): ProviderSearchWarning[] {
+  return searches.flatMap((search) =>
+    search.error
+      ? [
+          {
+            account: search.account,
+            error: search.error,
+            isDefaultAccount: search.isDefaultAccount,
+            provider: search.id,
+            providerName: search.displayName,
+          },
+        ]
+      : [],
+  )
+}
+
+async function loadConfiguredProviderZones(providerId?: string, accountInput?: string): Promise<{
+  candidates: ProviderZoneCandidate[]
+  accountInferred: boolean
+  providerInferred: boolean
+  searched: ProviderZoneSearchResult[]
+}> {
+  const config = await loadConfig()
+  const account = accountInput ? normalizeProviderAccount(accountInput) : undefined
+
+  if (providerId) {
+    const definition = getProviderDefinition(providerId)
+    const accounts = account ? [explicitAccountRef(definition.id, account)] : listConfiguredProviderAccounts(config, definition)
+    const selectedAccounts = accounts.length > 0 ? accounts : [defaultAccountRef(definition.id)]
+    const results = await Promise.all(
+      selectedAccounts.map((ref) =>
+        account || selectedAccounts.length === 1 ? loadProviderZones(definition, ref) : loadProviderZonesSafely(definition, ref),
+      ),
+    )
+    return {
+      accountInferred: account === undefined,
+      candidates: results.flatMap((result) => result.candidates),
+      providerInferred: false,
+      searched: results.map((result) => result.search),
+    }
+  }
+
+  const providerAccounts = listProviderDefinitions().flatMap((definition) =>
+    listConfiguredProviderAccounts(config, definition)
+      .filter((ref) => !account || ref.account === account)
+      .map((ref) => ({definition, ref})),
+  )
+
+  if (providerAccounts.length === 0) {
+    const message = account
+      ? `No DNS provider account named ${account} is configured. Run \`doomain providers connect <provider> --account ${account}\` first.`
+      : 'No DNS provider is configured. Run `doomain providers connect` first.'
+    throw new DoomainError('CONFIG_NOT_FOUND', message, {
+      account,
+      configuredProviders: await providerConnectionDetails(),
+      recovery: 'Connect the DNS provider that owns this domain, then retry `doomain link <domain> --json`.',
+      suggestedCommands: account
+        ? [`doomain providers connect <provider> --account ${account}`, 'doomain link <domain> --json']
+        : ['doomain providers connect', 'doomain link <domain> --json'],
+    })
+  }
+
+  const results = await Promise.all(providerAccounts.map(({definition, ref}) => loadProviderZonesSafely(definition, ref)))
+
+  return {
+    accountInferred: account === undefined,
+    candidates: results.flatMap((result) => result.candidates),
+    providerInferred: true,
+    searched: results.map((result) => result.search),
+  }
+}
+
+export async function resolveProviderTarget(input: ResolveProviderTargetInput): Promise<ResolvedDnsTarget> {
+  const requested = resolveRequestedDomain(input)
+  const zones = await loadConfiguredProviderZones(input.provider, input.account)
+  const matches = zones.candidates
+    .filter((candidate) => zoneMatchesDomain(requested.fullDomain, candidate.zone.name, requested.forceExactZone))
+    .sort((a, b) => b.zone.name.length - a.zone.name.length)
+
+  if (matches.length === 0) {
+    const account = input.account ? normalizeProviderAccount(input.account) : undefined
+    const providerMessage = input.provider
+      ? `${getProviderDefinition(input.provider).displayName}${account ? ` account ${account}` : ''} does not have a matching DNS zone for ${requested.fullDomain}.`
+      : `No configured DNS provider has a matching DNS zone for ${requested.fullDomain}.`
+    throw new DoomainError('PROVIDER_ZONE_NOT_FOUND', providerMessage, {
+      account,
+      configuredProviders: await providerConnectionDetails(),
+      domain: requested.fullDomain,
+      recovery:
+        'Retry with --provider <id> --account <alias> only if another configured provider account owns this zone. Otherwise connect the DNS provider account that owns this domain.',
+      searchedZones: zones.searched,
+      suggestedCommands: [`doomain link ${requested.fullDomain} --provider <id> --account <alias> --json`, 'doomain providers connect'],
+    })
+  }
+
+  const bestLength = matches[0].zone.name.length
+  const bestMatches = matches.filter((candidate) => candidate.zone.name.length === bestLength)
+  const uniqueBestMatches = bestMatches.filter(
+    (candidate, index, candidates) =>
+      candidates.findIndex(
+        (item) => item.provider === candidate.provider && item.account === candidate.account && item.zone.name === candidate.zone.name,
+      ) === index,
+  )
+
+  if (uniqueBestMatches.length > 1) {
+    throw new DoomainError(
+      'PROVIDER_ZONE_AMBIGUOUS',
+      `Multiple DNS provider accounts have a matching DNS zone for ${requested.fullDomain}. Pass --provider and --account to choose one.`,
+      {candidates: candidateDetails(uniqueBestMatches), domain: requested.fullDomain},
+    )
+  }
+
+  const selected = uniqueBestMatches[0]
+  return {
+    account: selected.account,
+    accountInferred: zones.accountInferred,
+    isDefaultAccount: selected.isDefaultAccount,
+    provider: selected.provider,
+    providerInferred: zones.providerInferred,
+    target: targetFromZone(requested.fullDomain, selected.zone.name),
+    warnings: searchWarnings(zones.searched),
+  }
+}
+
+function discoveryError(error: DoomainError, domain: string): DoomainError {
+  if (error.code !== 'CONFIG_NOT_FOUND' && error.code !== 'PROVIDER_ZONE_NOT_FOUND') return error
+
+  const details = error.details && typeof error.details === 'object' ? error.details : {}
+  return new DoomainError(error.code, error.message, {
+    ...details,
+    recovery: `Connect or repair the DNS provider account that owns this domain, then retry \`doomain domains find ${domain} --json\`.`,
+    suggestedCommands: ['doomain providers connect', `doomain domains find ${domain} --json`],
+  })
+}
+
+/** Find the configured DNS provider account with the longest zone match for a domain. */
+export async function findDomainProvider(input: FindDomainProviderInput): Promise<DomainProviderResult> {
+  try {
+    const resolved = await resolveProviderTarget(input)
+
+    return {
+      account: resolved.account,
+      accountInferred: resolved.accountInferred,
+      complete: resolved.warnings.length === 0,
+      domain: resolved.target.fullDomain,
+      isApex: resolved.target.isApex,
+      isDefaultAccount: resolved.isDefaultAccount,
+      provider: resolved.provider,
+      providerInferred: resolved.providerInferred,
+      recordName: resolved.target.recordName,
+      warnings: resolved.warnings,
+      zoneDomain: resolved.target.zoneDomain,
+    }
+  } catch (error) {
+    if (error instanceof DoomainError) throw discoveryError(error, input.domain)
+    throw error
+  }
+}
