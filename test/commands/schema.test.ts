@@ -84,6 +84,8 @@ describe('schema', () => {
       'clerk domains add',
       'dns point',
       'auth clerk',
+      'update',
+      'upgrade',
     ])
   })
 

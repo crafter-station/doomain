@@ -200,6 +200,20 @@ export const commandSchemas: CommandSchema[] = [
     flags: [{ name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.' }],
   },
   {
+    name: 'update',
+    description: 'Install the latest doomain version from npm without using the existing npm cache.',
+    examples: ['doomain update', 'doomain update --json'],
+    mutates: true,
+    flags: [{ name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.' }],
+  },
+  {
+    name: 'upgrade',
+    description: 'Alias for update.',
+    examples: ['doomain upgrade', 'doomain upgrade --json'],
+    mutates: true,
+    flags: [{ name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.' }],
+  },
+  {
     name: 'providers list',
     description: 'List supported DNS providers.',
     examples: ['doomain providers list --json'],
