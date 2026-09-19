@@ -1,7 +1,7 @@
-export {run} from '@oclif/core'
+export { run } from '@oclif/core'
 export {
-  findDomainProvider,
   type DomainProviderResult,
   type FindDomainProviderInput,
+  findDomainProvider,
   type ProviderSearchWarning,
 } from './lib/domain-provider.js'

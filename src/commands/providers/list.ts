@@ -1,8 +1,8 @@
-import {Command} from '@oclif/core'
+import { Command } from '@oclif/core'
 
-import {jsonFlag} from '../../lib/flags.js'
-import {listProviderDefinitions} from '../../lib/providers/registry.js'
-import {createOutput} from '../../lib/output.js'
+import { jsonFlag } from '../../lib/flags.js'
+import { createOutput } from '../../lib/output.js'
+import { listProviderDefinitions } from '../../lib/providers/registry.js'
 
 export default class ProvidersList extends Command {
   static description = 'List supported DNS providers.'
@@ -12,8 +12,8 @@ export default class ProvidersList extends Command {
   }
 
   async run(): Promise<void> {
-    const {flags} = await this.parse(ProvidersList)
-    const out = createOutput({json: flags.json})
+    const { flags } = await this.parse(ProvidersList)
+    const out = createOutput({ json: flags.json })
     const providers = listProviderDefinitions().map((provider) => ({
       capabilities: provider.capabilities,
       credentials: provider.credentials,
@@ -24,6 +24,6 @@ export default class ProvidersList extends Command {
     }))
 
     for (const provider of providers) out.info(`${provider.id} - ${provider.displayName}`)
-    out.result({providers})
+    out.result({ providers })
   }
 }

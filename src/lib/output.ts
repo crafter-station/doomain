@@ -1,6 +1,6 @@
 import * as p from '@clack/prompts'
 
-import {DoomainError, type DoomainErrorCode, toDoomainError} from './errors.js'
+import { DoomainError, type DoomainErrorCode, toDoomainError } from './errors.js'
 
 export interface JsonSuccess<T> {
   ok: true
@@ -45,7 +45,7 @@ export function writeJson<T>(data: JsonEnvelope<T>): void {
   process.stdout.write(`${JSON.stringify(data)}\n`)
 }
 
-export function createOutput(opts: {json?: boolean} = {}): OutputContext {
+export function createOutput(opts: { json?: boolean } = {}): OutputContext {
   const json = shouldUseJson(opts.json)
 
   if (json) {
@@ -57,8 +57,8 @@ export function createOutput(opts: {json?: boolean} = {}): OutputContext {
       error: noop,
       intro: noop,
       outro: noop,
-      spinner: () => ({error: noop, message: noop, start: noop, stop: noop}),
-      result: <T>(data: T) => writeJson({ok: true, data}),
+      spinner: () => ({ error: noop, message: noop, start: noop, stop: noop }),
+      result: <T>(data: T) => writeJson({ ok: true, data }),
     }
   }
 
@@ -84,7 +84,7 @@ export function outputError(json: boolean, error: unknown, fallbackCode: Doomain
       error: {
         code: doomainError.code,
         message: doomainError.message,
-        ...(doomainError.details === undefined ? {} : {details: doomainError.details}),
+        ...(doomainError.details === undefined ? {} : { details: doomainError.details }),
       },
     })
     return

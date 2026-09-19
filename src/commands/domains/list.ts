@@ -1,8 +1,8 @@
-import {Command} from '@oclif/core'
+import { Command } from '@oclif/core'
 
-import {loadConfig} from '../../lib/config.js'
-import {accountFlag, domainFlag, jsonFlag, providerFlag} from '../../lib/flags.js'
-import {createOutput, outputError} from '../../lib/output.js'
+import { loadConfig } from '../../lib/config.js'
+import { accountFlag, domainFlag, jsonFlag, providerFlag } from '../../lib/flags.js'
+import { createOutput, outputError } from '../../lib/output.js'
 import {
   DEFAULT_PROVIDER_ACCOUNT,
   isDefaultProviderAccount,
@@ -10,9 +10,9 @@ import {
   normalizeProviderAccount,
   type ProviderAccountRef,
 } from '../../lib/providers/core/config.js'
-import {createProvider, getProviderDefinition} from '../../lib/providers/registry.js'
-import type {DnsZone} from '../../lib/providers/types.js'
-import {normalizeDomain} from '../../lib/validate.js'
+import { createProvider, getProviderDefinition } from '../../lib/providers/registry.js'
+import type { DnsZone } from '../../lib/providers/types.js'
+import { normalizeDomain } from '../../lib/validate.js'
 
 async function resolveZones(provider: Awaited<ReturnType<typeof createProvider>>, domain?: string): Promise<DnsZone[]> {
   if (!domain) return provider.listZones()
@@ -34,8 +34,8 @@ export default class DomainsList extends Command {
   }
 
   async run(): Promise<void> {
-    const {flags} = await this.parse(DomainsList)
-    const out = createOutput({json: flags.json})
+    const { flags } = await this.parse(DomainsList)
+    const out = createOutput({ json: flags.json })
 
     try {
       const config = await loadConfig()
@@ -43,13 +43,16 @@ export default class DomainsList extends Command {
       const definition = getProviderDefinition(providerId)
       const account = flags.account ? normalizeProviderAccount(flags.account) : undefined
       const accounts: ProviderAccountRef[] = account
-        ? [{account, isDefaultAccount: isDefaultProviderAccount(account), providerId: definition.id}]
+        ? [{ account, isDefaultAccount: isDefaultProviderAccount(account), providerId: definition.id }]
         : listConfiguredProviderAccounts(config, definition)
-      const selectedAccounts = accounts.length > 0 ? accounts : [{account: DEFAULT_PROVIDER_ACCOUNT, isDefaultAccount: true, providerId: definition.id}]
+      const selectedAccounts =
+        accounts.length > 0
+          ? accounts
+          : [{ account: DEFAULT_PROVIDER_ACCOUNT, isDefaultAccount: true, providerId: definition.id }]
       const results = []
 
       for (const selectedAccount of selectedAccounts) {
-        const provider = await createProvider(definition.id, {account: selectedAccount.account})
+        const provider = await createProvider(definition.id, { account: selectedAccount.account })
         const zones = await resolveZones(provider, flags.domain)
 
         for (const zone of zones) {
@@ -61,14 +64,18 @@ export default class DomainsList extends Command {
             records,
             zone,
           })
-          const accountLabel = selectedAccount.isDefaultAccount ? provider.id : `${provider.id}/${selectedAccount.account}`
+          const accountLabel = selectedAccount.isDefaultAccount
+            ? provider.id
+            : `${provider.id}/${selectedAccount.account}`
           out.info(`${zone.name} (${records.length} records) via ${accountLabel}`)
           for (const record of records) out.info(`  ${record.type} ${record.name} -> ${record.value}`)
         }
       }
 
       out.result({
-        ...(selectedAccounts.length === 1 ? {account: selectedAccounts[0].account, isDefaultAccount: selectedAccounts[0].isDefaultAccount} : {}),
+        ...(selectedAccounts.length === 1
+          ? { account: selectedAccounts[0].account, isDefaultAccount: selectedAccounts[0].isDefaultAccount }
+          : {}),
         provider: definition.id,
         zones: results,
       })

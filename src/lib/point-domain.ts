@@ -1,9 +1,9 @@
 import { resolve4, resolve6, resolveCname } from 'node:dns/promises'
 import { isIP } from 'node:net'
 
-import { resolveProviderTarget, type ResolvedDnsTarget } from './domain-provider.js'
+import { type ResolvedDnsTarget, resolveProviderTarget } from './domain-provider.js'
 import { DoomainError } from './errors.js'
-import { withProviderRecordOptions, type DnsOverrideWarning } from './link-domain.js'
+import { type DnsOverrideWarning, withProviderRecordOptions } from './link-domain.js'
 import { createProvider } from './providers/registry.js'
 import type { DnsProvider, DnsRecordInput } from './providers/types.js'
 import { normalizeDomain } from './validate.js'
@@ -194,7 +194,7 @@ function providerResolutionError(error: DoomainError, input: PointDomainInput): 
 
 function validateTtl(provider: DnsProvider, ttl: number | undefined): void {
   if (ttl === undefined) return
-  const {maxTtl, minTtl} = provider.capabilities
+  const { maxTtl, minTtl } = provider.capabilities
   if (!Number.isInteger(ttl) || ttl <= 0) {
     throw new DoomainError('INVALID_INPUT', 'DNS record TTL must be a positive integer.')
   }

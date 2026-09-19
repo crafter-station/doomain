@@ -1,9 +1,9 @@
-import {Args, Command, Flags} from '@oclif/core'
 import * as p from '@clack/prompts'
+import { Args, Command, Flags } from '@oclif/core'
 
-import {getConfigPath, loadConfig, maskSecret, updateConfig} from '../../lib/config.js'
-import {accountFlag, jsonFlag} from '../../lib/flags.js'
-import {createOutput, outputError} from '../../lib/output.js'
+import { getConfigPath, loadConfig, maskSecret, updateConfig } from '../../lib/config.js'
+import { accountFlag, jsonFlag } from '../../lib/flags.js'
+import { createOutput, outputError } from '../../lib/output.js'
 import {
   DEFAULT_PROVIDER_ACCOUNT,
   isDefaultProviderAccount,
@@ -12,8 +12,8 @@ import {
   providerAccountHasCredentials,
   withProviderAccountCredentials,
 } from '../../lib/providers/core/config.js'
-import {getProviderDefinition, listProviderDefinitions} from '../../lib/providers/registry.js'
-import type {CredentialDefinition, DnsProviderDefinition} from '../../lib/providers/types.js'
+import { getProviderDefinition, listProviderDefinitions } from '../../lib/providers/registry.js'
+import type { CredentialDefinition, DnsProviderDefinition } from '../../lib/providers/types.js'
 
 function requireString(value: unknown, message: string): string {
   if (typeof value === 'string' && value.trim()) return value.trim()
@@ -42,7 +42,7 @@ async function fetchPublicIp(): Promise<string | undefined> {
   const timeout = setTimeout(() => controller.abort(), 2000)
 
   try {
-    const response = await fetch('https://api.ipify.org', {signal: controller.signal})
+    const response = await fetch('https://api.ipify.org', { signal: controller.signal })
     if (!response.ok) return undefined
     const ip = (await response.text()).trim()
     return ip || undefined
@@ -61,8 +61,8 @@ function credentialInitialValue(credential: CredentialDefinition, detectedPublic
 async function promptCredential(credential: CredentialDefinition, detectedPublicIp?: string): Promise<string | null> {
   const initialValue = credential.secret ? undefined : credentialInitialValue(credential, detectedPublicIp)
   const value = credential.secret
-    ? await p.password({message: credential.label})
-    : await p.text({message: credential.label, initialValue, placeholder: credential.placeholder ?? credential.hint})
+    ? await p.password({ message: credential.label })
+    : await p.text({ message: credential.label, initialValue, placeholder: credential.placeholder ?? credential.hint })
   if (p.isCancel(value)) {
     p.cancel('Cancelled')
     return null
@@ -81,7 +81,11 @@ function validateProviderAccount(value: string | undefined): string | undefined 
 }
 
 async function promptProviderAccount(): Promise<string | null> {
-  const value = await p.text({message: 'Profile name', placeholder: DEFAULT_PROVIDER_ACCOUNT, validate: validateProviderAccount})
+  const value = await p.text({
+    message: 'Profile name',
+    placeholder: DEFAULT_PROVIDER_ACCOUNT,
+    validate: validateProviderAccount,
+  })
   if (p.isCancel(value)) {
     p.cancel('Cancelled')
     return null
@@ -135,30 +139,34 @@ function showSetupGuide(definition: DnsProviderDefinition, detectedPublicIp?: st
 
 export default class ProvidersConnect extends Command {
   static args = {
-    provider: Args.string({description: 'Provider id, for example spaceship.', required: false}),
+    provider: Args.string({ description: 'Provider id, for example spaceship.', required: false }),
   }
 
   static description = 'Save DNS provider credentials locally.'
 
   static flags = {
     account: accountFlag,
-    'api-key': Flags.string({description: 'Compatibility alias for Spaceship apiKey.'}),
-    'api-secret': Flags.string({description: 'Compatibility alias for Spaceship apiSecret.'}),
-    credential: Flags.string({char: 'c', description: 'Provider credential as key=value.', multiple: true}),
+    'api-key': Flags.string({ description: 'Compatibility alias for Spaceship apiKey.' }),
+    'api-secret': Flags.string({ description: 'Compatibility alias for Spaceship apiSecret.' }),
+    credential: Flags.string({ char: 'c', description: 'Provider credential as key=value.', multiple: true }),
     json: jsonFlag,
-    'no-verify': Flags.boolean({description: 'Save credentials without verifying them first.'}),
+    'no-verify': Flags.boolean({ description: 'Save credentials without verifying them first.' }),
   }
 
   async run(): Promise<void> {
-    const {args, flags} = await this.parse(ProvidersConnect)
-    const out = createOutput({json: flags.json})
+    const { args, flags } = await this.parse(ProvidersConnect)
+    const out = createOutput({ json: flags.json })
     let spinner: ReturnType<typeof out.spinner> | undefined
 
     try {
       if (!args.provider && out.json) throw new Error('Missing provider. Pass a provider id, for example `namecheap`.')
       const definition = args.provider ? getProviderDefinition(args.provider) : await promptProvider()
       if (!definition) return
-      const account = flags.account ? normalizeProviderAccount(flags.account) : out.json ? DEFAULT_PROVIDER_ACCOUNT : await promptProviderAccount()
+      const account = flags.account
+        ? normalizeProviderAccount(flags.account)
+        : out.json
+          ? DEFAULT_PROVIDER_ACCOUNT
+          : await promptProviderAccount()
       if (!account) return
       const isDefaultAccount = isDefaultProviderAccount(account)
       const currentConfig = await loadConfig()
@@ -175,7 +183,10 @@ export default class ProvidersConnect extends Command {
 
       for (const credential of definition.credentials) {
         const value =
-          process.env[credential.env] || passedCredentials[credential.key] || legacyFlagValue(flags, credential) || undefined
+          process.env[credential.env] ||
+          passedCredentials[credential.key] ||
+          legacyFlagValue(flags, credential) ||
+          undefined
 
         if (value) {
           credentials[credential.key] = value
@@ -208,9 +219,11 @@ export default class ProvidersConnect extends Command {
       if (!flags['no-verify']) {
         spinner = out.json ? undefined : out.spinner()
         spinner?.start(`Verifying ${definition.displayName} credentials`)
-        const zones = await definition.create({credentials, debug: process.env.DOOMAIN_DEBUG === '1'}).listZones()
+        const zones = await definition.create({ credentials, debug: process.env.DOOMAIN_DEBUG === '1' }).listZones()
         domainCount = zones.length
-        spinner?.stop(`Verified ${definition.displayName} credentials and found ${domainCount} domain${domainCount === 1 ? '' : 's'}`)
+        spinner?.stop(
+          `Verified ${definition.displayName} credentials and found ${domainCount} domain${domainCount === 1 ? '' : 's'}`,
+        )
         spinner = undefined
       }
 
@@ -230,7 +243,7 @@ export default class ProvidersConnect extends Command {
 
       await updateConfig((config) => ({
         ...config,
-        defaults: setDefault ? {...config.defaults, provider: definition.id} : config.defaults,
+        defaults: setDefault ? { ...config.defaults, provider: definition.id } : config.defaults,
         providers: {
           ...config.providers,
           [definition.id]: withProviderAccountCredentials(config.providers?.[definition.id], account, credentials),

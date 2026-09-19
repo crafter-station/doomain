@@ -1,15 +1,22 @@
-import {Args, Command, Flags} from '@oclif/core'
 import * as p from '@clack/prompts'
+import { Args, Command, Flags } from '@oclif/core'
 
-import {accountFlag, apexFlag, domainFlag, jsonFlag, projectFlag, providerFlag, subdomainFlag} from '../lib/flags.js'
-import {linkDomain, type DnsOverrideWarning, type LinkDomainResult} from '../lib/link-domain.js'
-import {createOutput, outputError} from '../lib/output.js'
+import { accountFlag, apexFlag, domainFlag, jsonFlag, projectFlag, providerFlag, subdomainFlag } from '../lib/flags.js'
+import { type DnsOverrideWarning, type LinkDomainResult, linkDomain } from '../lib/link-domain.js'
+import { createOutput, outputError } from '../lib/output.js'
 
 function recordName(name: string): string {
   return name === '@' ? 'root' : name
 }
 
-function recordLine(record: {name: string; priority?: number; proxied?: boolean; ttl?: number; type: string; value: string}): string {
+function recordLine(record: {
+  name: string
+  priority?: number
+  proxied?: boolean
+  ttl?: number
+  type: string
+  value: string
+}): string {
   const details = [
     record.priority === undefined ? undefined : `priority ${record.priority}`,
     record.proxied === undefined ? undefined : `proxied ${record.proxied}`,
@@ -59,32 +66,38 @@ export default class Link extends Command {
   ]
 
   static args = {
-    domain: Args.string({description: 'Target domain to link, for example app.example.com.', required: false}),
+    domain: Args.string({ description: 'Target domain to link, for example app.example.com.', required: false }),
   }
 
   static flags = {
     account: accountFlag,
     apex: apexFlag,
     domain: domainFlag,
-    'dry-run': Flags.boolean({description: 'Preview changes without writing to Vercel or DNS.'}),
-    force: Flags.boolean({description: 'Move existing Vercel project domains and overwrite conflicting DNS records.'}),
+    'dry-run': Flags.boolean({ description: 'Preview changes without writing to Vercel or DNS.' }),
+    force: Flags.boolean({
+      description: 'Move existing Vercel project domains and overwrite conflicting DNS records.',
+    }),
     json: jsonFlag,
     project: projectFlag,
     provider: providerFlag,
     subdomain: subdomainFlag,
-    timeout: Flags.integer({default: 300, description: 'Wait timeout in seconds.'}),
-    wait: Flags.boolean({allowNo: true, default: true, description: 'Wait for DNS propagation and Vercel verification.'}),
+    timeout: Flags.integer({ default: 300, description: 'Wait timeout in seconds.' }),
+    wait: Flags.boolean({
+      allowNo: true,
+      default: true,
+      description: 'Wait for DNS propagation and Vercel verification.',
+    }),
   }
 
   async run(): Promise<void> {
-    const {args, flags} = await this.parse(Link)
-    const out = createOutput({json: flags.json})
+    const { args, flags } = await this.parse(Link)
+    const out = createOutput({ json: flags.json })
     let spinner: ReturnType<typeof out.spinner> | undefined
     const domain = flags.domain ?? args.domain
 
     try {
       if (flags['dry-run']) {
-        const result = await linkDomain({...flags, domain, dryRun: true, timeoutSeconds: flags.timeout})
+        const result = await linkDomain({ ...flags, domain, dryRun: true, timeoutSeconds: flags.timeout })
         out.result(result)
         if (!out.json) {
           p.note(dryRunPreview(result), 'Dry run')
@@ -117,7 +130,7 @@ export default class Link extends Command {
               return false
             },
         dryRun: false,
-        progress: out.json ? undefined : ({message}) => spinner?.message(message),
+        progress: out.json ? undefined : ({ message }) => spinner?.message(message),
         timeoutSeconds: flags.timeout,
       })
       spinner.stop(result.vercel.verified ? 'Domain linked and verified' : 'Domain linked')

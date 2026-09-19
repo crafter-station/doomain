@@ -1,6 +1,6 @@
-import {mkdir, readFile, unlink, writeFile} from 'node:fs/promises'
-import {homedir} from 'node:os'
-import {dirname, join} from 'node:path'
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { dirname, join } from 'node:path'
 
 export function getConfigDir(): string {
   return process.env.DOOMAIN_CONFIG_DIR || join(homedir(), '.doomain')
@@ -63,8 +63,8 @@ export async function loadConfig(): Promise<DoomainConfig> {
 
 export async function saveConfig(config: DoomainConfig): Promise<void> {
   const configFile = getConfigFile()
-  await mkdir(dirname(configFile), {recursive: true})
-  await writeFile(configFile, `${JSON.stringify(config, null, 2)}\n`, {mode: 0o600})
+  await mkdir(dirname(configFile), { recursive: true })
+  await writeFile(configFile, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 })
 }
 
 export async function updateConfig(updater: (config: DoomainConfig) => DoomainConfig): Promise<DoomainConfig> {

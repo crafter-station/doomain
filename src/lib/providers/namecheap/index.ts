@@ -1,8 +1,8 @@
-import {XMLParser} from 'fast-xml-parser'
+import { XMLParser } from 'fast-xml-parser'
 
-import {normalizeDomain} from '../../validate.js'
-import {ProviderError} from '../core/errors.js'
-import {assertNoConflicts, planDnsChanges} from '../core/planner.js'
+import { normalizeDomain } from '../../validate.js'
+import { ProviderError } from '../core/errors.js'
+import { assertNoConflicts, planDnsChanges } from '../core/planner.js'
 import type {
   DnsChange,
   DnsChangePlan,
@@ -61,7 +61,7 @@ function bool(value?: unknown): boolean {
 
 function getErrorMessage(error: unknown): string {
   if (typeof error === 'string') return error
-  if (error && typeof error === 'object' && '#text' in error) return String((error as {'#text': unknown})['#text'])
+  if (error && typeof error === 'object' && '#text' in error) return String((error as { '#text': unknown })['#text'])
   return JSON.stringify(error)
 }
 
@@ -71,15 +71,25 @@ function numberValue(value: unknown): number | undefined {
   return undefined
 }
 
-function pagingTotal(commandResponse: Record<string, unknown>, result: Record<string, unknown>, fallback: number): number {
+function pagingTotal(
+  commandResponse: Record<string, unknown>,
+  result: Record<string, unknown>,
+  fallback: number,
+): number {
   const paging = (commandResponse.Paging ?? result.Paging) as Record<string, unknown> | undefined
   return numberValue(paging?.TotalItems) ?? numberValue(paging?.totalItems) ?? fallback
 }
 
 function providerCodeFromNamecheapError(message: string) {
   const lower = message.toLowerCase()
-  if (lower.includes('clientip') || lower.includes('client ip') || lower.includes('whitelist')) return 'PROVIDER_PERMISSION_DENIED'
-  if (lower.includes('api key') || lower.includes('apiuser') || lower.includes('username') || lower.includes('authentication')) {
+  if (lower.includes('clientip') || lower.includes('client ip') || lower.includes('whitelist'))
+    return 'PROVIDER_PERMISSION_DENIED'
+  if (
+    lower.includes('api key') ||
+    lower.includes('apiuser') ||
+    lower.includes('username') ||
+    lower.includes('authentication')
+  ) {
     return 'PROVIDER_AUTH_FAILED'
   }
 
@@ -92,18 +102,19 @@ function namecheapSetupHelp(code: ReturnType<typeof providerCodeFromNamecheapErr
   return 'Make sure API access is enabled and your current public IPv4 is whitelisted at https://ap.www.namecheap.com/settings/tools/apiaccess/.'
 }
 
-function splitDomain(domain: string): {sld: string; tld: string} {
+function splitDomain(domain: string): { sld: string; tld: string } {
   const normalized = normalizeDomain(domain)
   const [sld, ...rest] = normalized.split('.')
-  if (!sld || rest.length === 0) throw new ProviderError('namecheap', 'PROVIDER_ZONE_NOT_FOUND', `Invalid Namecheap domain: ${domain}`)
-  return {sld, tld: rest.join('.')}
+  if (!sld || rest.length === 0)
+    throw new ProviderError('namecheap', 'PROVIDER_ZONE_NOT_FOUND', `Invalid Namecheap domain: ${domain}`)
+  return { sld, tld: rest.join('.') }
 }
 
 function toZone(domain: NamecheapDomain): DnsZone | null {
   if (!domain.Name) return null
   try {
     const name = normalizeDomain(domain.Name)
-    return {id: name, name}
+    return { id: name, name }
   } catch {
     return null
   }
@@ -112,7 +123,7 @@ function toZone(domain: NamecheapDomain): DnsZone | null {
 function toDnsRecord(host: NamecheapHost): DnsRecord | null {
   if (!host.Name || !host.Type || !host.Address) return null
   const record: DnsRecord = {
-    metadata: {namecheap: host},
+    metadata: { namecheap: host },
     name: host.Name,
     type: host.Type as DnsRecord['type'],
     value: host.Address,
@@ -130,7 +141,7 @@ function sameRecord(a: DnsRecord | DnsRecordInput, b: DnsRecord | DnsRecordInput
 }
 
 function inputToRecord(record: DnsRecordInput): DnsRecord {
-  return {...record}
+  return { ...record }
 }
 
 function hostParams(records: DnsRecord[]): Record<string, string> {
@@ -168,7 +179,7 @@ export class NamecheapProvider implements DnsProvider {
 
   async verifyCredentials(): Promise<ProviderHealth> {
     await this.listZones()
-    return {ok: true}
+    return { ok: true }
   }
 
   async listZones(): Promise<DnsZone[]> {
@@ -177,7 +188,7 @@ export class NamecheapProvider implements DnsProvider {
     let totalItems = Number.POSITIVE_INFINITY
 
     while (zones.length < totalItems) {
-      const response = await this.request('namecheap.domains.getList', {Page: String(currentPage), PageSize: '100'})
+      const response = await this.request('namecheap.domains.getList', { Page: String(currentPage), PageSize: '100' })
       const commandResponse = response.ApiResponse.CommandResponse
       const result = commandResponse.DomainGetListResult
       const domains = asArray<NamecheapDomain>(result.Domain)
@@ -202,8 +213,8 @@ export class NamecheapProvider implements DnsProvider {
   }
 
   async listRecords(zone: DnsZone): Promise<DnsRecord[]> {
-    const {sld, tld} = splitDomain(zone.name)
-    const response = await this.request('namecheap.domains.dns.getHosts', {SLD: sld, TLD: tld})
+    const { sld, tld } = splitDomain(zone.name)
+    const response = await this.request('namecheap.domains.dns.getHosts', { SLD: sld, TLD: tld })
     const hosts = asArray<NamecheapHost>(response.ApiResponse.CommandResponse.DomainDNSGetHostsResult.host)
     return hosts.flatMap((host) => {
       const record = toDnsRecord(host)
@@ -211,11 +222,17 @@ export class NamecheapProvider implements DnsProvider {
     })
   }
 
-  async planChanges(zone: DnsZone, desired: DnsRecordInput[], opts: {force?: boolean} = {}): Promise<DnsChangePlan> {
-    return planDnsChanges({desired, existing: await this.listRecords(zone), force: opts.force, providerId: this.id, zone})
+  async planChanges(zone: DnsZone, desired: DnsRecordInput[], opts: { force?: boolean } = {}): Promise<DnsChangePlan> {
+    return planDnsChanges({
+      desired,
+      existing: await this.listRecords(zone),
+      force: opts.force,
+      providerId: this.id,
+      zone,
+    })
   }
 
-  async applyChanges(zone: DnsZone, plan: DnsChangePlan): Promise<{applied: DnsChange[]; skipped: DnsRecordInput[]}> {
+  async applyChanges(zone: DnsZone, plan: DnsChangePlan): Promise<{ applied: DnsChange[]; skipped: DnsRecordInput[] }> {
     assertNoConflicts(this.id, plan)
     const finalRecords = [...plan.existing]
     const applied: DnsChange[] = []
@@ -232,7 +249,7 @@ export class NamecheapProvider implements DnsProvider {
         if (index !== -1) finalRecords.splice(index, 1)
       } else if (change.action === 'update') {
         const index = finalRecords.findIndex((record) => sameRecord(record, change.existing))
-        if (index !== -1) finalRecords[index] = {...change.existing, ...change.record}
+        if (index !== -1) finalRecords[index] = { ...change.existing, ...change.record }
       } else {
         finalRecords.push(inputToRecord(change.record))
       }
@@ -241,13 +258,13 @@ export class NamecheapProvider implements DnsProvider {
     }
 
     if (applied.length > 0) await this.setHosts(zone, finalRecords)
-    return {applied, skipped}
+    return { applied, skipped }
   }
 
   async upsertRecord(zone: DnsZone, record: DnsRecordInput): Promise<DnsRecord> {
-    const plan = await this.planChanges(zone, [record], {force: true})
+    const plan = await this.planChanges(zone, [record], { force: true })
     await this.applyChanges(zone, plan)
-    return {...record, ttl: record.ttl ?? capabilities.defaultTtl}
+    return { ...record, ttl: record.ttl ?? capabilities.defaultTtl }
   }
 
   async deleteRecord(zone: DnsZone, record: DnsRecord): Promise<void> {
@@ -256,8 +273,12 @@ export class NamecheapProvider implements DnsProvider {
   }
 
   private async setHosts(zone: DnsZone, records: DnsRecord[]): Promise<void> {
-    const {sld, tld} = splitDomain(zone.name)
-    const response = await this.request('namecheap.domains.dns.setHosts', {SLD: sld, TLD: tld, ...hostParams(records)}, {method: 'POST'})
+    const { sld, tld } = splitDomain(zone.name)
+    const response = await this.request(
+      'namecheap.domains.dns.setHosts',
+      { SLD: sld, TLD: tld, ...hostParams(records) },
+      { method: 'POST' },
+    )
     const result = response.ApiResponse.CommandResponse.DomainDNSSetHostsResult
     if (!bool(result?.IsSuccess)) {
       throw new ProviderError(
@@ -269,9 +290,13 @@ export class NamecheapProvider implements DnsProvider {
     }
   }
 
-  private async request(command: string, params: Record<string, string>, opts: {method?: 'GET' | 'POST'} = {}) {
+  private async request(command: string, params: Record<string, string>, opts: { method?: 'GET' | 'POST' } = {}) {
     if (!this.clientIp) {
-      throw new ProviderError('namecheap', 'MISSING_CREDENTIALS', 'Namecheap requires a whitelisted IPv4 ClientIp credential.')
+      throw new ProviderError(
+        'namecheap',
+        'MISSING_CREDENTIALS',
+        'Namecheap requires a whitelisted IPv4 ClientIp credential.',
+      )
     }
 
     const query = new URLSearchParams({
@@ -285,7 +310,7 @@ export class NamecheapProvider implements DnsProvider {
     const method = opts.method ?? 'GET'
     const response = await fetch(method === 'POST' ? this.baseUrl : `${this.baseUrl}?${query.toString()}`, {
       ...(method === 'POST'
-        ? {body: query.toString(), headers: {'Content-Type': 'application/x-www-form-urlencoded'}, method}
+        ? { body: query.toString(), headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, method }
         : {}),
     })
 
@@ -309,9 +334,9 @@ export class NamecheapProvider implements DnsProvider {
 export const namecheapProviderDefinition: DnsProviderDefinition = {
   capabilities,
   credentials: [
-    {env: 'NAMECHEAP_API_USER', key: 'apiUser', label: 'API user', required: true},
-    {env: 'NAMECHEAP_API_KEY', key: 'apiKey', label: 'API key', required: true, secret: true},
-    {env: 'NAMECHEAP_USERNAME', key: 'username', label: 'Username', required: false},
+    { env: 'NAMECHEAP_API_USER', key: 'apiUser', label: 'API user', required: true },
+    { env: 'NAMECHEAP_API_KEY', key: 'apiKey', label: 'API key', required: true, secret: true },
+    { env: 'NAMECHEAP_USERNAME', key: 'username', label: 'Username', required: false },
     {
       env: 'NAMECHEAP_CLIENT_IP',
       hint: 'Must match the IPv4 address whitelisted in Namecheap API Access settings.',
@@ -319,7 +344,7 @@ export const namecheapProviderDefinition: DnsProviderDefinition = {
       label: 'Whitelisted client IP',
       required: true,
     },
-    {env: 'NAMECHEAP_SANDBOX', key: 'sandbox', label: 'Use sandbox', required: false},
+    { env: 'NAMECHEAP_SANDBOX', key: 'sandbox', label: 'Use sandbox', required: false },
   ],
   displayName: 'Namecheap',
   docsUrl: 'https://www.namecheap.com/support/api/methods/',

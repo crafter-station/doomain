@@ -1,4 +1,4 @@
-import {DoomainError} from './errors.js'
+import { DoomainError } from './errors.js'
 
 const DOMAIN_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/
 
@@ -10,7 +10,11 @@ export interface DomainTarget {
 }
 
 export function normalizeDomain(input: string): string {
-  const value = input.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '')
+  const value = input
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/\/$/, '')
   const domain = value.split('/')[0]
 
   if (!domain || domain.length > 253) {
@@ -26,7 +30,10 @@ export function normalizeDomain(input: string): string {
 }
 
 export function normalizeSubdomain(input: string): string {
-  const subdomain = input.trim().toLowerCase().replace(/^\.+|\.+$/g, '')
+  const subdomain = input
+    .trim()
+    .toLowerCase()
+    .replace(/^\.+|\.+$/g, '')
   if (!subdomain || subdomain === '@') {
     throw new DoomainError('INVALID_INPUT', 'Subdomain is required unless --apex is used.')
   }
@@ -39,7 +46,7 @@ export function normalizeSubdomain(input: string): string {
   return subdomain
 }
 
-export function resolveDomainTarget(opts: {domain: string; subdomain?: string; apex?: boolean}): DomainTarget {
+export function resolveDomainTarget(opts: { domain: string; subdomain?: string; apex?: boolean }): DomainTarget {
   const zoneDomain = normalizeDomain(opts.domain)
 
   if (opts.apex) {

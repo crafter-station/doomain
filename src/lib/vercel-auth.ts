@@ -1,7 +1,7 @@
-import {existsSync} from 'node:fs'
-import {readFile} from 'node:fs/promises'
-import {homedir} from 'node:os'
-import {delimiter, join} from 'node:path'
+import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { delimiter, join } from 'node:path'
 
 export type GlobalVercelTokenSource = 'environment' | 'vercel-cli'
 
@@ -48,14 +48,14 @@ async function readVercelCliToken(authFile: string): Promise<string | undefined>
 }
 
 export async function listGlobalVercelTokens(
-  opts: {authFile?: string; authFiles?: string[]; env?: NodeJS.ProcessEnv} = {},
+  opts: { authFile?: string; authFiles?: string[]; env?: NodeJS.ProcessEnv } = {},
 ): Promise<GlobalVercelToken[]> {
   const env = opts.env ?? process.env
   const tokens: GlobalVercelToken[] = []
   const envToken = env.VERCEL_TOKEN?.trim()
 
   if (envToken) {
-    tokens.push({label: 'VERCEL_TOKEN', source: 'environment', token: envToken})
+    tokens.push({ label: 'VERCEL_TOKEN', source: 'environment', token: envToken })
   }
 
   const authFiles = opts.authFile ? [opts.authFile] : (opts.authFiles ?? getVercelCliAuthFiles(env))
@@ -63,7 +63,7 @@ export async function listGlobalVercelTokens(
     if (!existsSync(authFile)) continue
     const cliToken = await readVercelCliToken(authFile)
     if (cliToken && !tokens.some((item) => item.token === cliToken)) {
-      tokens.push({authFile, label: 'Vercel CLI', source: 'vercel-cli', token: cliToken})
+      tokens.push({ authFile, label: 'Vercel CLI', source: 'vercel-cli', token: cliToken })
     }
   }
 

@@ -1,1 +1,1 @@
-export {default} from './connect.js'
+export { default } from './connect.js'

@@ -1,5 +1,5 @@
-import {loadConfig} from './config.js'
-import {DoomainError} from './errors.js'
+import { loadConfig } from './config.js'
+import { DoomainError } from './errors.js'
 
 const CLERK_API_URL = 'https://api.clerk.com'
 
@@ -40,16 +40,16 @@ export interface ClerkProductionInstance {
 }
 
 export interface ClerkDomainStatus {
-  dns?: {required?: boolean; status: string}
-  mail?: {required?: boolean; status: string}
-  ssl?: {required?: boolean; status: string}
+  dns?: { required?: boolean; status: string }
+  mail?: { required?: boolean; status: string }
+  ssl?: { required?: boolean; status: string }
   status: string
 }
 
 interface ClerkApiErrorBody {
   code?: string
-  error?: {code?: string; message?: string}
-  errors?: Array<{code?: string; long_message?: string; message?: string}>
+  error?: { code?: string; message?: string }
+  errors?: Array<{ code?: string; long_message?: string; message?: string }>
   message?: string
 }
 
@@ -70,28 +70,37 @@ export async function resolveClerkPlatformConfig(appId?: string): Promise<ClerkP
   }
 
   if (!resolvedAppId) {
-    throw new DoomainError('MISSING_ARGUMENT', 'Clerk application is required. Pass --app, set CLERK_APPLICATION_ID, or save it with `doomain auth clerk`.')
+    throw new DoomainError(
+      'MISSING_ARGUMENT',
+      'Clerk application is required. Pass --app, set CLERK_APPLICATION_ID, or save it with `doomain auth clerk`.',
+    )
   }
 
-  return {appId: resolvedAppId, platformApiKey}
+  return { appId: resolvedAppId, platformApiKey }
 }
 
 function apiErrorMessage(status: number, body?: ClerkApiErrorBody): string {
-  return body?.errors?.[0]?.long_message ?? body?.errors?.[0]?.message ?? body?.error?.message ?? body?.message ?? `Clerk API error (${status}).`
+  return (
+    body?.errors?.[0]?.long_message ??
+    body?.errors?.[0]?.message ??
+    body?.error?.message ??
+    body?.message ??
+    `Clerk API error (${status}).`
+  )
 }
 
 function apiErrorCode(body?: ClerkApiErrorBody): string | undefined {
   return body?.errors?.[0]?.code ?? body?.error?.code ?? body?.code
 }
 
-export function createClerkPlatformClient(config: {platformApiKey: string}) {
+export function createClerkPlatformClient(config: { platformApiKey: string }) {
   async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const response = await fetch(`${CLERK_API_URL}${path}`, {
       ...init,
       headers: {
         Accept: 'application/json',
         Authorization: `Bearer ${config.platformApiKey}`,
-        ...(init.body ? {'Content-Type': 'application/json'} : {}),
+        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
         ...(init.headers ?? {}),
       },
     })
@@ -125,19 +134,28 @@ export function createClerkPlatformClient(config: {platformApiKey: string}) {
       return request(`/v1/platform/applications/${encodeURIComponent(appId)}`)
     },
 
-    createProductionInstance(appId: string, domain: string, developmentInstanceId: string): Promise<ClerkProductionInstance> {
+    createProductionInstance(
+      appId: string,
+      domain: string,
+      developmentInstanceId: string,
+    ): Promise<ClerkProductionInstance> {
       return request(`/v1/platform/applications/${encodeURIComponent(appId)}/instances`, {
-        body: JSON.stringify({clone_instance_id: developmentInstanceId, domain, environment_type: 'production'}),
+        body: JSON.stringify({ clone_instance_id: developmentInstanceId, domain, environment_type: 'production' }),
         method: 'POST',
       })
     },
 
     getDomainStatus(appId: string, domainId: string): Promise<ClerkDomainStatus> {
-      return request(`/v1/platform/applications/${encodeURIComponent(appId)}/domains/${encodeURIComponent(domainId)}/status`)
+      return request(
+        `/v1/platform/applications/${encodeURIComponent(appId)}/domains/${encodeURIComponent(domainId)}/status`,
+      )
     },
 
     triggerDomainDnsCheck(appId: string, domainId: string): Promise<ClerkDomainStatus> {
-      return request(`/v1/platform/applications/${encodeURIComponent(appId)}/domains/${encodeURIComponent(domainId)}/dns_check`, {method: 'POST'})
+      return request(
+        `/v1/platform/applications/${encodeURIComponent(appId)}/domains/${encodeURIComponent(domainId)}/dns_check`,
+        { method: 'POST' },
+      )
     },
   }
 }

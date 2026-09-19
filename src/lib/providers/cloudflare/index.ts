@@ -1,7 +1,7 @@
-import {normalizeDomain} from '../../validate.js'
-import {createProviderHttpClient, type ProviderHttpClient} from '../core/http.js'
-import {assertNoConflicts, planDnsChanges} from '../core/planner.js'
-import {ProviderError} from '../core/errors.js'
+import { normalizeDomain } from '../../validate.js'
+import { ProviderError } from '../core/errors.js'
+import { createProviderHttpClient, type ProviderHttpClient } from '../core/http.js'
+import { assertNoConflicts, planDnsChanges } from '../core/planner.js'
 import type {
   DnsChange,
   DnsChangePlan,
@@ -91,7 +91,7 @@ function toDnsRecord(record: CloudflareRecord, zone: DnsZone): DnsRecord | null 
   if (!record.id || !record.name || !record.type || !record.content || !isSupportedRecordType(record.type)) return null
   const dnsRecord: DnsRecord = {
     id: record.id,
-    metadata: {cloudflare: record},
+    metadata: { cloudflare: record },
     name: relativeRecordName(record.name, zone.name),
     type: record.type,
     value: record.content,
@@ -110,8 +110,10 @@ function toCloudflareRecord(record: DnsRecordInput, zone: DnsZone) {
     name: absoluteRecordName(record, zone),
     ttl: record.ttl ?? capabilities.defaultTtl,
     type: record.type,
-    ...(record.priority === undefined ? {} : {priority: record.priority}),
-    ...(record.proxied === undefined || !['A', 'AAAA', 'CNAME'].includes(record.type) ? {} : {proxied: record.proxied}),
+    ...(record.priority === undefined ? {} : { priority: record.priority }),
+    ...(record.proxied === undefined || !['A', 'AAAA', 'CNAME'].includes(record.type)
+      ? {}
+      : { proxied: record.proxied }),
   }
 }
 
@@ -119,7 +121,7 @@ function toZone(zone: CloudflareZone): DnsZone | null {
   if (!zone.id || !zone.name) return null
   try {
     const name = normalizeDomain(zone.name)
-    return {id: zone.id, metadata: {cloudflare: zone}, name}
+    return { id: zone.id, metadata: { cloudflare: zone }, name }
   } catch {
     return null
   }
@@ -141,7 +143,7 @@ export class CloudflareProvider implements DnsProvider {
         403: 'Cloudflare API token is missing required permissions. Enable Zone:Read and DNS:Edit for the account.',
         429: 'Cloudflare rate limit exceeded. Try again later.',
       },
-      headers: {Authorization: `Bearer ${context.credentials.apiToken}`},
+      headers: { Authorization: `Bearer ${context.credentials.apiToken}` },
       providerId: this.id,
       signal: context.signal,
     })
@@ -149,7 +151,7 @@ export class CloudflareProvider implements DnsProvider {
 
   async verifyCredentials(): Promise<ProviderHealth> {
     await this.listZones()
-    return {ok: true}
+    return { ok: true }
   }
 
   async listZones(): Promise<DnsZone[]> {
@@ -157,7 +159,7 @@ export class CloudflareProvider implements DnsProvider {
 
     for (let page = 1; page <= 100; page += 1) {
       const response = await this.request<CloudflareZone[]>('/zones', {
-        query: {'account.id': this.accountId, direction: 'asc', order: 'name', page, 'per_page': 50},
+        query: { 'account.id': this.accountId, direction: 'asc', order: 'name', page, per_page: 50 },
       })
 
       for (const zone of response.result ?? []) {
@@ -183,7 +185,7 @@ export class CloudflareProvider implements DnsProvider {
 
     for (let page = 1; page <= 100; page += 1) {
       const response = await this.request<CloudflareRecord[]>(`/zones/${zone.id}/dns_records`, {
-        query: {page, 'per_page': 100},
+        query: { page, per_page: 100 },
       })
 
       for (const record of response.result ?? []) {
@@ -198,11 +200,17 @@ export class CloudflareProvider implements DnsProvider {
     return records
   }
 
-  async planChanges(zone: DnsZone, desired: DnsRecordInput[], opts: {force?: boolean} = {}): Promise<DnsChangePlan> {
-    return planDnsChanges({desired, existing: await this.listRecords(zone), force: opts.force, providerId: this.id, zone})
+  async planChanges(zone: DnsZone, desired: DnsRecordInput[], opts: { force?: boolean } = {}): Promise<DnsChangePlan> {
+    return planDnsChanges({
+      desired,
+      existing: await this.listRecords(zone),
+      force: opts.force,
+      providerId: this.id,
+      zone,
+    })
   }
 
-  async applyChanges(zone: DnsZone, plan: DnsChangePlan): Promise<{applied: DnsChange[]; skipped: DnsRecordInput[]}> {
+  async applyChanges(zone: DnsZone, plan: DnsChangePlan): Promise<{ applied: DnsChange[]; skipped: DnsRecordInput[] }> {
     assertNoConflicts(this.id, plan)
     const applied: DnsChange[] = []
     const skipped: DnsRecordInput[] = []
@@ -220,18 +228,21 @@ export class CloudflareProvider implements DnsProvider {
       applied.push(change)
     }
 
-    return {applied, skipped}
+    return { applied, skipped }
   }
 
   async upsertRecord(zone: DnsZone, record: DnsRecordInput): Promise<DnsRecord> {
-    const existing = (await this.listRecords(zone)).find((item) => item.name === record.name && item.type === record.type)
+    const existing = (await this.listRecords(zone)).find(
+      (item) => item.name === record.name && item.type === record.type,
+    )
     if (existing) return this.updateRecord(zone, existing, record)
     return this.createRecord(zone, record)
   }
 
   async deleteRecord(zone: DnsZone, record: DnsRecord): Promise<void> {
-    if (!record.id) throw new ProviderError(this.id, 'PROVIDER_API_ERROR', 'Cloudflare DNS record id is required to delete a record.')
-    await this.request(`/zones/${zone.id}/dns_records/${record.id}`, {method: 'DELETE'})
+    if (!record.id)
+      throw new ProviderError(this.id, 'PROVIDER_API_ERROR', 'Cloudflare DNS record id is required to delete a record.')
+    await this.request(`/zones/${zone.id}/dns_records/${record.id}`, { method: 'DELETE' })
   }
 
   private async createRecord(zone: DnsZone, record: DnsRecordInput): Promise<DnsRecord> {
@@ -240,17 +251,18 @@ export class CloudflareProvider implements DnsProvider {
       method: 'POST',
     })
     const created = response.result ? toDnsRecord(response.result, zone) : null
-    return created ?? {...record, ttl: record.ttl ?? capabilities.defaultTtl}
+    return created ?? { ...record, ttl: record.ttl ?? capabilities.defaultTtl }
   }
 
   private async updateRecord(zone: DnsZone, existing: DnsRecord, record: DnsRecordInput): Promise<DnsRecord> {
-    if (!existing.id) throw new ProviderError(this.id, 'PROVIDER_API_ERROR', 'Cloudflare DNS record id is required to update a record.')
+    if (!existing.id)
+      throw new ProviderError(this.id, 'PROVIDER_API_ERROR', 'Cloudflare DNS record id is required to update a record.')
     const response = await this.request<CloudflareRecord>(`/zones/${zone.id}/dns_records/${existing.id}`, {
       body: toCloudflareRecord(record, zone),
       method: 'PUT',
     })
     const updated = response.result ? toDnsRecord(response.result, zone) : null
-    return updated ?? {...record, id: existing.id, ttl: record.ttl ?? capabilities.defaultTtl}
+    return updated ?? { ...record, id: existing.id, ttl: record.ttl ?? capabilities.defaultTtl }
   }
 
   private async request<T>(path: string, init: Parameters<ProviderHttpClient['request']>[1] = {}) {
@@ -266,8 +278,8 @@ export class CloudflareProvider implements DnsProvider {
 export const cloudflareProviderDefinition: DnsProviderDefinition = {
   capabilities,
   credentials: [
-    {env: 'CLOUDFLARE_API_TOKEN', key: 'apiToken', label: 'API token', required: true, secret: true},
-    {env: 'CLOUDFLARE_ACCOUNT_ID', key: 'accountId', label: 'Account ID', required: true},
+    { env: 'CLOUDFLARE_API_TOKEN', key: 'apiToken', label: 'API token', required: true, secret: true },
+    { env: 'CLOUDFLARE_ACCOUNT_ID', key: 'accountId', label: 'Account ID', required: true },
   ],
   displayName: 'Cloudflare',
   docsUrl: 'https://developers.cloudflare.com/api/',

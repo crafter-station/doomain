@@ -1,6 +1,6 @@
-import {expect} from 'chai'
+import { expect } from 'chai'
 
-import {createProvider} from '../../src/lib/providers/registry.js'
+import { createProvider } from '../../src/lib/providers/registry.js'
 
 describe('spaceship provider', () => {
   const originalFetch = globalThis.fetch
@@ -30,8 +30,8 @@ describe('spaceship provider', () => {
         status: 200,
         json: async () =>
           skip === '0'
-            ? {items: [{name: 'alpha.com'}, {unicodeName: 'beta.com'}], total: 3}
-            : {items: [{name: 'gamma.com'}], total: 3},
+            ? { items: [{ name: 'alpha.com' }, { unicodeName: 'beta.com' }], total: 3 }
+            : { items: [{ name: 'gamma.com' }], total: 3 },
       } as Response
     }) as typeof fetch
 
@@ -40,9 +40,9 @@ describe('spaceship provider', () => {
 
     expect(requestedSkips).to.deep.equal(['0', '2'])
     expect(zones).to.deep.equal([
-      {id: 'alpha.com', name: 'alpha.com'},
-      {id: 'beta.com', name: 'beta.com'},
-      {id: 'gamma.com', name: 'gamma.com'},
+      { id: 'alpha.com', name: 'alpha.com' },
+      { id: 'beta.com', name: 'beta.com' },
+      { id: 'gamma.com', name: 'gamma.com' },
     ])
   })
 })

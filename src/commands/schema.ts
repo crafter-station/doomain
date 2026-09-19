@@ -1,12 +1,12 @@
-import {Args, Command} from '@oclif/core'
+import { Args, Command } from '@oclif/core'
 
-import {getCommandSchemaForAgents} from '../lib/command-schema.js'
-import {jsonFlag} from '../lib/flags.js'
-import {createOutput, outputError} from '../lib/output.js'
+import { getCommandSchemaForAgents } from '../lib/command-schema.js'
+import { jsonFlag } from '../lib/flags.js'
+import { createOutput, outputError } from '../lib/output.js'
 
 export default class Schema extends Command {
   static args = {
-    command: Args.string({description: 'Command name to inspect, for example link.', required: false}),
+    command: Args.string({ description: 'Command name to inspect, for example link.', required: false }),
   }
 
   static description = 'Print machine-readable command schemas for agents.'
@@ -16,8 +16,8 @@ export default class Schema extends Command {
   }
 
   async run(): Promise<void> {
-    const {args, flags} = await this.parse(Schema)
-    const out = createOutput({json: flags.json})
+    const { args, flags } = await this.parse(Schema)
+    const out = createOutput({ json: flags.json })
 
     try {
       const schema = await getCommandSchemaForAgents(args.command)

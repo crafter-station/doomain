@@ -55,10 +55,10 @@ export interface DnsRecordInput {
 }
 
 export type DnsChange =
-  | {action: 'create'; record: DnsRecordInput}
-  | {action: 'delete'; existing: DnsRecord; reason?: string}
-  | {action: 'skip'; existing: DnsRecord; reason: string; record: DnsRecordInput}
-  | {action: 'update'; existing: DnsRecord; record: DnsRecordInput}
+  | { action: 'create'; record: DnsRecordInput }
+  | { action: 'delete'; existing: DnsRecord; reason?: string }
+  | { action: 'skip'; existing: DnsRecord; reason: string; record: DnsRecordInput }
+  | { action: 'update'; existing: DnsRecord; record: DnsRecordInput }
 
 export interface DnsConflict {
   existing: DnsRecord

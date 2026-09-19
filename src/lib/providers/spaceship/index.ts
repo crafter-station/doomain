@@ -1,7 +1,7 @@
-import {normalizeDomain} from '../../validate.js'
-import {createProviderHttpClient, type ProviderHttpClient} from '../core/http.js'
-import {paginateBySkip} from '../core/pagination.js'
-import {applyDnsChanges, planDnsChanges} from '../core/planner.js'
+import { normalizeDomain } from '../../validate.js'
+import { createProviderHttpClient, type ProviderHttpClient } from '../core/http.js'
+import { paginateBySkip } from '../core/pagination.js'
+import { applyDnsChanges, planDnsChanges } from '../core/planner.js'
 import type {
   DnsChangePlan,
   DnsProvider,
@@ -51,9 +51,9 @@ function toSpaceshipItem(record: DnsRecordInput): SpaceshipRecord {
     type: record.type,
   }
 
-  if (record.type === 'CNAME') return {...base, cname: record.value}
-  if (record.type === 'A' || record.type === 'AAAA') return {...base, address: record.value}
-  return {...base, value: record.value}
+  if (record.type === 'CNAME') return { ...base, cname: record.value }
+  if (record.type === 'A' || record.type === 'AAAA') return { ...base, address: record.value }
+  return { ...base, value: record.value }
 }
 
 function toDnsRecord(record: SpaceshipRecord): DnsRecord {
@@ -71,7 +71,7 @@ function toZone(domain: SpaceshipDomain): DnsZone | null {
 
   try {
     const normalized = normalizeDomain(name)
-    return {id: normalized, name: normalized}
+    return { id: normalized, name: normalized }
   } catch {
     return null
   }
@@ -102,15 +102,15 @@ export class SpaceshipProvider implements DnsProvider {
 
   async verifyCredentials(): Promise<ProviderHealth> {
     await this.listZones()
-    return {ok: true}
+    return { ok: true }
   }
 
   async listZones(): Promise<DnsZone[]> {
     const domains = await paginateBySkip<SpaceshipDomain>({
       take: 100,
-      fetchPage: ({skip, take}) =>
-        this.http.request<{items: SpaceshipDomain[]; total: number}>('/domains', {
-          query: {orderBy: 'name', skip, take},
+      fetchPage: ({ skip, take }) =>
+        this.http.request<{ items: SpaceshipDomain[]; total: number }>('/domains', {
+          query: { orderBy: 'name', skip, take },
         }),
     })
 
@@ -129,16 +129,16 @@ export class SpaceshipProvider implements DnsProvider {
   async listRecords(zone: DnsZone): Promise<DnsRecord[]> {
     const records = await paginateBySkip<SpaceshipRecord>({
       take: 500,
-      fetchPage: ({skip, take}) =>
-        this.http.request<{items: SpaceshipRecord[]; total: number}>(`/dns/records/${zone.name}`, {
-          query: {skip, take},
+      fetchPage: ({ skip, take }) =>
+        this.http.request<{ items: SpaceshipRecord[]; total: number }>(`/dns/records/${zone.name}`, {
+          query: { skip, take },
         }),
     })
 
     return records.map(toDnsRecord)
   }
 
-  async planChanges(zone: DnsZone, desired: DnsRecordInput[], opts: {force?: boolean} = {}): Promise<DnsChangePlan> {
+  async planChanges(zone: DnsZone, desired: DnsRecordInput[], opts: { force?: boolean } = {}): Promise<DnsChangePlan> {
     return planDnsChanges({
       desired,
       existing: await this.listRecords(zone),
@@ -148,7 +148,10 @@ export class SpaceshipProvider implements DnsProvider {
     })
   }
 
-  async applyChanges(zone: DnsZone, plan: DnsChangePlan): Promise<{applied: DnsChangePlan['changes']; skipped: DnsRecordInput[]}> {
+  async applyChanges(
+    zone: DnsZone,
+    plan: DnsChangePlan,
+  ): Promise<{ applied: DnsChangePlan['changes']; skipped: DnsRecordInput[] }> {
     return applyDnsChanges({
       deleteRecord: (record) => this.deleteRecord(zone, record),
       plan,
@@ -159,11 +162,11 @@ export class SpaceshipProvider implements DnsProvider {
 
   async upsertRecord(zone: DnsZone, record: DnsRecordInput): Promise<DnsRecord> {
     await this.http.request(`/dns/records/${zone.name}`, {
-      body: {force: true, items: [toSpaceshipItem(record)]},
+      body: { force: true, items: [toSpaceshipItem(record)] },
       method: 'PUT',
     })
 
-    return {...record, ttl: record.ttl ?? capabilities.defaultTtl}
+    return { ...record, ttl: record.ttl ?? capabilities.defaultTtl }
   }
 
   async deleteRecord(zone: DnsZone, record: DnsRecord): Promise<void> {
@@ -177,8 +180,8 @@ export class SpaceshipProvider implements DnsProvider {
 export const spaceshipProviderDefinition: DnsProviderDefinition = {
   capabilities,
   credentials: [
-    {env: 'SPACESHIP_API_KEY', key: 'apiKey', label: 'API key', required: true, secret: true},
-    {env: 'SPACESHIP_API_SECRET', key: 'apiSecret', label: 'API secret', required: true, secret: true},
+    { env: 'SPACESHIP_API_KEY', key: 'apiKey', label: 'API key', required: true, secret: true },
+    { env: 'SPACESHIP_API_SECRET', key: 'apiSecret', label: 'API secret', required: true, secret: true },
   ],
   displayName: 'Spaceship',
   docsUrl: 'https://docs.spaceship.dev/',

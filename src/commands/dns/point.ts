@@ -1,10 +1,10 @@
 import * as p from '@clack/prompts'
 import { Args, Command, Flags } from '@oclif/core'
 
-import { jsonFlag, providerFlag, accountFlag } from '../../lib/flags.js'
-import { outputError, createOutput } from '../../lib/output.js'
-import { pointDomain, type PointDomainResult, type PointRecordType } from '../../lib/point-domain.js'
+import { accountFlag, jsonFlag, providerFlag } from '../../lib/flags.js'
 import type { DnsOverrideWarning } from '../../lib/link-domain.js'
+import { createOutput, outputError } from '../../lib/output.js'
+import { type PointDomainResult, type PointRecordType, pointDomain } from '../../lib/point-domain.js'
 
 function preview(result: PointDomainResult): string {
   return [
@@ -28,7 +28,7 @@ function conflictNote(warning: DnsOverrideWarning): string {
   ].join('\n')
 }
 
-function successMessages(result: PointDomainResult, waited: boolean): {outro: string; spinner: string} {
+function successMessages(result: PointDomainResult, waited: boolean): { outro: string; spinner: string } {
   if (result.propagated) {
     return {
       outro: result.updated

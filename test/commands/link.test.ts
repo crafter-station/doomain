@@ -1,29 +1,28 @@
-import {mkdtempSync, rmSync, writeFileSync} from 'node:fs'
-import {tmpdir} from 'node:os'
-import {join} from 'node:path'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-import {runCommand} from '@oclif/test'
-import {expect} from 'chai'
-
-import {DoomainError} from '../../src/lib/errors.js'
-import {linkDomain, verificationRecords} from '../../src/lib/link-domain.js'
-import {saveConfig} from '../../src/lib/config.js'
-import {createVercelClient} from '../../src/lib/vercel.js'
+import { runCommand } from '@oclif/test'
+import { expect } from 'chai'
+import { saveConfig } from '../../src/lib/config.js'
+import { DoomainError } from '../../src/lib/errors.js'
+import { linkDomain, verificationRecords } from '../../src/lib/link-domain.js'
+import { createVercelClient } from '../../src/lib/vercel.js'
 
 function jsonResponse(body: unknown): Response {
-  return {json: async () => body, ok: true, status: 200} as Response
+  return { json: async () => body, ok: true, status: 200 } as Response
 }
 
 function jsonErrorResponse(status: number, body: unknown): Response {
-  return {json: async () => body, ok: false, status} as Response
+  return { json: async () => body, ok: false, status } as Response
 }
 
 function textResponse(body: string): Response {
-  return {ok: true, status: 200, text: async () => body} as Response
+  return { ok: true, status: 200, text: async () => body } as Response
 }
 
 function cloudflareResponse(result: unknown) {
-  return {errors: [], messages: [], result, 'result_info': {page: 1, 'total_pages': 1}, success: true}
+  return { errors: [], messages: [], result, result_info: { page: 1, total_pages: 1 }, success: true }
 }
 
 function namecheapDomainListXml(domains: string[]): string {
@@ -40,13 +39,13 @@ function namecheapDomainListXml(domains: string[]): string {
 
 describe('link', () => {
   const originalFetch = globalThis.fetch
-  const env = {...process.env}
+  const env = { ...process.env }
   const cwd = process.cwd()
   let dir: string
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'doomain-link-'))
-    process.env = {...env, DOOMAIN_CONFIG_FILE: join(dir, 'config.json')}
+    process.env = { ...env, DOOMAIN_CONFIG_FILE: join(dir, 'config.json') }
     for (const key of [
       'CLOUDFLARE_ACCOUNT_ID',
       'CLOUDFLARE_API_TOKEN',
@@ -68,14 +67,14 @@ describe('link', () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch
-    process.env = {...env}
+    process.env = { ...env }
     process.chdir(cwd)
-    rmSync(dir, {force: true, recursive: true})
+    rmSync(dir, { force: true, recursive: true })
   })
 
   it('requires a domain when no command, environment, or config default exists', async () => {
-    const {stdout} = await runCommand('link --json')
-    const result = JSON.parse(stdout) as {error: {code: string; message: string}; ok: boolean}
+    const { stdout } = await runCommand('link --json')
+    const result = JSON.parse(stdout) as { error: { code: string; message: string }; ok: boolean }
 
     expect(result.ok).to.equal(false)
     expect(result.error.code).to.equal('MISSING_ARGUMENT')
@@ -88,13 +87,13 @@ describe('link', () => {
     globalThis.fetch = (async (input) => {
       const url = new URL(String(input))
       if (url.hostname === 'spaceship.dev' && url.pathname === '/api/v1/domains') {
-        return jsonResponse({items: [{name: 'example.com'}], total: 1})
+        return jsonResponse({ items: [{ name: 'example.com' }], total: 1 })
       }
 
       throw new Error(`Unexpected request: ${url.href}`)
     }) as typeof fetch
 
-    const {stdout} = await runCommand(
+    const { stdout } = await runCommand(
       'link --provider spaceship --domain example.com --subdomain app --project prj_123 --dry-run --json',
     )
     const result = JSON.parse(stdout) as {
@@ -105,7 +104,7 @@ describe('link', () => {
         provider: string
         providerInferred: boolean
         recordName: string
-        records: Array<{type: string; name: string; value: string}>
+        records: Array<{ type: string; name: string; value: string }>
       }
     }
 
@@ -115,7 +114,9 @@ describe('link', () => {
     expect(result.data.provider).to.equal('spaceship')
     expect(result.data.providerInferred).to.equal(false)
     expect(result.data.recordName).to.equal('app')
-    expect(result.data.records).to.deep.equal([{type: 'CNAME', name: 'app', value: 'cname.vercel-dns.com', ttl: 3600}])
+    expect(result.data.records).to.deep.equal([
+      { type: 'CNAME', name: 'app', value: 'cname.vercel-dns.com', ttl: 3600 },
+    ])
   })
 
   it('uses DOOMAIN_DOMAIN when the link command omits an explicit domain', async () => {
@@ -125,14 +126,14 @@ describe('link', () => {
     globalThis.fetch = (async (input) => {
       const url = new URL(String(input))
       if (url.hostname === 'api.cloudflare.com' && url.pathname === '/client/v4/zones') {
-        return jsonResponse(cloudflareResponse([{id: 'zone_1', name: 'example.com'}]))
+        return jsonResponse(cloudflareResponse([{ id: 'zone_1', name: 'example.com' }]))
       }
 
       throw new Error(`Unexpected request: ${url.href}`)
     }) as typeof fetch
 
-    const {stdout} = await runCommand('link --project prj_123 --dry-run --json')
-    const result = JSON.parse(stdout) as {ok: boolean; data: {domain: string; provider: string; recordName: string}}
+    const { stdout } = await runCommand('link --project prj_123 --dry-run --json')
+    const result = JSON.parse(stdout) as { ok: boolean; data: { domain: string; provider: string; recordName: string } }
 
     expect(result.ok).to.equal(true)
     expect(result.data.domain).to.equal('app.example.com')
@@ -143,18 +144,18 @@ describe('link', () => {
   it('uses the configured default domain when the link command omits an explicit domain', async () => {
     process.env.CLOUDFLARE_API_TOKEN = 'cloudflare_token'
     process.env.CLOUDFLARE_ACCOUNT_ID = 'account_123'
-    await saveConfig({defaults: {domain: 'app.example.com'}})
+    await saveConfig({ defaults: { domain: 'app.example.com' } })
     globalThis.fetch = (async (input) => {
       const url = new URL(String(input))
       if (url.hostname === 'api.cloudflare.com' && url.pathname === '/client/v4/zones') {
-        return jsonResponse(cloudflareResponse([{id: 'zone_1', name: 'example.com'}]))
+        return jsonResponse(cloudflareResponse([{ id: 'zone_1', name: 'example.com' }]))
       }
 
       throw new Error(`Unexpected request: ${url.href}`)
     }) as typeof fetch
 
-    const {stdout} = await runCommand('link --project prj_123 --dry-run --json')
-    const result = JSON.parse(stdout) as {ok: boolean; data: {domain: string; provider: string; recordName: string}}
+    const { stdout } = await runCommand('link --project prj_123 --dry-run --json')
+    const result = JSON.parse(stdout) as { ok: boolean; data: { domain: string; provider: string; recordName: string } }
 
     expect(result.ok).to.equal(true)
     expect(result.data.domain).to.equal('app.example.com')
@@ -168,14 +169,14 @@ describe('link', () => {
     globalThis.fetch = (async (input) => {
       const url = new URL(String(input))
       if (url.hostname === 'api.cloudflare.com' && url.pathname === '/client/v4/zones') {
-        return jsonResponse(cloudflareResponse([{id: 'zone_1', name: 'example.com'}]))
+        return jsonResponse(cloudflareResponse([{ id: 'zone_1', name: 'example.com' }]))
       }
 
       throw new Error(`Unexpected request: ${url.href}`)
     }) as typeof fetch
 
-    const {stdout} = await runCommand('link app.example.com --project prj_123 --dry-run --json')
-    const result = JSON.parse(stdout) as {ok: boolean; data: {domain: string; provider: string; recordName: string}}
+    const { stdout } = await runCommand('link app.example.com --project prj_123 --dry-run --json')
+    const result = JSON.parse(stdout) as { ok: boolean; data: { domain: string; provider: string; recordName: string } }
 
     expect(result.ok).to.equal(true)
     expect(result.data.domain).to.equal('app.example.com')
@@ -187,27 +188,27 @@ describe('link', () => {
     process.env.VERCEL_TOKEN = 'vercel_token'
     process.env.SPACESHIP_API_KEY = 'key'
     process.env.SPACESHIP_API_SECRET = 'secret'
-    writeFileSync(join(dir, 'package.json'), JSON.stringify({name: 'crafter-survey'}))
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'crafter-survey' }))
     process.chdir(dir)
 
     globalThis.fetch = (async (input) => {
       const url = new URL(String(input))
       if (url.hostname === 'api.vercel.com' && url.pathname === '/v9/projects') {
         expect(url.searchParams.get('search')).to.equal('crafter-survey')
-        return jsonResponse({projects: [{id: 'prj_123', name: 'crafter-survey'}]})
+        return jsonResponse({ projects: [{ id: 'prj_123', name: 'crafter-survey' }] })
       }
 
       if (url.hostname === 'spaceship.dev' && url.pathname === '/api/v1/domains') {
-        return jsonResponse({items: [{name: 'crafter.ventures'}], total: 1})
+        return jsonResponse({ items: [{ name: 'crafter.ventures' }], total: 1 })
       }
 
       throw new Error(`Unexpected request: ${url.href}`)
     }) as typeof fetch
 
-    const {stdout} = await runCommand('link survey.crafter.ventures --dry-run --json')
+    const { stdout } = await runCommand('link survey.crafter.ventures --dry-run --json')
     const result = JSON.parse(stdout) as {
       ok: boolean
-      data: {domain: string; project: string; projectSource: string; provider: string; zoneDomain: string}
+      data: { domain: string; project: string; projectSource: string; provider: string; zoneDomain: string }
     }
 
     expect(result.ok).to.equal(true)
@@ -220,20 +221,20 @@ describe('link', () => {
 
   it('suggests Vercel projects when package.json project inference misses', async () => {
     process.env.VERCEL_TOKEN = 'vercel_token'
-    writeFileSync(join(dir, 'package.json'), JSON.stringify({name: 'crafter-survey'}))
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'crafter-survey' }))
     process.chdir(dir)
 
     globalThis.fetch = (async (input) => {
       const url = new URL(String(input))
       if (url.hostname === 'api.vercel.com' && url.pathname === '/v9/projects') {
         const search = url.searchParams.get('search')
-        if (search === 'crafter-survey') return jsonResponse({projects: []})
+        if (search === 'crafter-survey') return jsonResponse({ projects: [] })
         if (!search) {
           return jsonResponse({
             projects: [
-              {id: 'prj_1', name: 'crafter-survey-prod'},
-              {id: 'prj_2', name: 'survey'},
-              {id: 'prj_3', name: 'unrelated'},
+              { id: 'prj_1', name: 'crafter-survey-prod' },
+              { id: 'prj_2', name: 'survey' },
+              { id: 'prj_3', name: 'unrelated' },
             ],
           })
         }
@@ -242,9 +243,12 @@ describe('link', () => {
       throw new Error(`Unexpected request: ${url.href}`)
     }) as typeof fetch
 
-    const {stdout} = await runCommand('link survey.crafter.ventures --dry-run --json')
+    const { stdout } = await runCommand('link survey.crafter.ventures --dry-run --json')
     const result = JSON.parse(stdout) as {
-      error: {code: string; details: {project: string; projectSource: string; suggestions: Array<{id: string; name: string}>}}
+      error: {
+        code: string
+        details: { project: string; projectSource: string; suggestions: Array<{ id: string; name: string }> }
+      }
       ok: boolean
     }
 
@@ -253,8 +257,8 @@ describe('link', () => {
     expect(result.error.details.project).to.equal('crafter-survey')
     expect(result.error.details.projectSource).to.equal('packageJson')
     expect(result.error.details.suggestions).to.deep.equal([
-      {id: 'prj_1', name: 'crafter-survey-prod'},
-      {id: 'prj_2', name: 'survey'},
+      { id: 'prj_1', name: 'crafter-survey-prod' },
+      { id: 'prj_2', name: 'survey' },
     ])
   })
 
@@ -262,19 +266,19 @@ describe('link', () => {
     process.env.DOOMAIN_PROJECT = 'env-project'
     process.env.SPACESHIP_API_KEY = 'key'
     process.env.SPACESHIP_API_SECRET = 'secret'
-    writeFileSync(join(dir, 'package.json'), JSON.stringify({name: 'package-project'}))
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'package-project' }))
     process.chdir(dir)
 
     globalThis.fetch = (async (input) => {
       const url = new URL(String(input))
       if (url.hostname === 'spaceship.dev' && url.pathname === '/api/v1/domains') {
-        return jsonResponse({items: [{name: 'example.com'}], total: 1})
+        return jsonResponse({ items: [{ name: 'example.com' }], total: 1 })
       }
 
       throw new Error(`Unexpected request: ${url.href}`)
     }) as typeof fetch
 
-    const result = await linkDomain({domain: 'app.example.com', dryRun: true})
+    const result = await linkDomain({ domain: 'app.example.com', dryRun: true })
 
     expect(result.project).to.equal('env-project')
     expect(result.projectSource).to.equal('env')
@@ -283,18 +287,18 @@ describe('link', () => {
   it('uses configured default project when no project flag is provided', async () => {
     process.env.SPACESHIP_API_KEY = 'key'
     process.env.SPACESHIP_API_SECRET = 'secret'
-    await saveConfig({defaults: {project: 'configured-project'}})
+    await saveConfig({ defaults: { project: 'configured-project' } })
 
     globalThis.fetch = (async (input) => {
       const url = new URL(String(input))
       if (url.hostname === 'spaceship.dev' && url.pathname === '/api/v1/domains') {
-        return jsonResponse({items: [{name: 'example.com'}], total: 1})
+        return jsonResponse({ items: [{ name: 'example.com' }], total: 1 })
       }
 
       throw new Error(`Unexpected request: ${url.href}`)
     }) as typeof fetch
 
-    const result = await linkDomain({domain: 'app.example.com', dryRun: true})
+    const result = await linkDomain({ domain: 'app.example.com', dryRun: true })
 
     expect(result.project).to.equal('configured-project')
     expect(result.projectSource).to.equal('config')
@@ -310,14 +314,14 @@ describe('link', () => {
       throw new Error(`Unexpected request: ${url.href}`)
     }) as typeof fetch
 
-    const result = await linkDomain({domain: 'dev.text0.dev', dryRun: true, project: 'text0'})
+    const result = await linkDomain({ domain: 'dev.text0.dev', dryRun: true, project: 'text0' })
 
     expect(result.provider).to.equal('namecheap')
     expect(result.providerInferred).to.equal(true)
     expect(result.zoneDomain).to.equal('text0.dev')
     expect(result.domain).to.equal('dev.text0.dev')
     expect(result.recordName).to.equal('dev')
-    expect(result.records).to.deep.equal([{name: 'dev', ttl: 3600, type: 'CNAME', value: 'cname.vercel-dns.com'}])
+    expect(result.records).to.deep.equal([{ name: 'dev', ttl: 3600, type: 'CNAME', value: 'cname.vercel-dns.com' }])
   })
 
   it('uses the longest matching configured zone', async () => {
@@ -328,8 +332,8 @@ describe('link', () => {
       if (url.hostname === 'api.cloudflare.com' && url.pathname === '/client/v4/zones') {
         return jsonResponse(
           cloudflareResponse([
-            {id: 'zone_1', name: 'example.com'},
-            {id: 'zone_2', name: 'dev.example.com'},
+            { id: 'zone_1', name: 'example.com' },
+            { id: 'zone_2', name: 'dev.example.com' },
           ]),
         )
       }
@@ -337,13 +341,13 @@ describe('link', () => {
       throw new Error(`Unexpected request: ${url.href}`)
     }) as typeof fetch
 
-    const result = await linkDomain({domain: 'api.dev.example.com', dryRun: true, project: 'prj_123'})
+    const result = await linkDomain({ domain: 'api.dev.example.com', dryRun: true, project: 'prj_123' })
 
     expect(result.provider).to.equal('cloudflare')
     expect(result.zoneDomain).to.equal('dev.example.com')
     expect(result.recordName).to.equal('api')
     expect(result.records).to.deep.equal([
-      {name: 'api', proxied: false, ttl: 3600, type: 'CNAME', value: 'cname.vercel-dns.com'},
+      { name: 'api', proxied: false, ttl: 3600, type: 'CNAME', value: 'cname.vercel-dns.com' },
     ])
   })
 
@@ -353,25 +357,25 @@ describe('link', () => {
     globalThis.fetch = (async (input) => {
       const url = new URL(String(input))
       if (url.hostname === 'api.cloudflare.com' && url.pathname === '/client/v4/zones') {
-        return jsonResponse(cloudflareResponse([{id: 'zone_1', name: 'example.com'}]))
+        return jsonResponse(cloudflareResponse([{ id: 'zone_1', name: 'example.com' }]))
       }
 
       throw new Error(`Unexpected request: ${url.href}`)
     }) as typeof fetch
 
-    const result = await linkDomain({domain: 'example.com', dryRun: true, project: 'prj_123'})
+    const result = await linkDomain({ domain: 'example.com', dryRun: true, project: 'prj_123' })
 
     expect(result.isApex).to.equal(true)
     expect(result.recordName).to.equal('@')
-    expect(result.records).to.deep.equal([{name: '@', proxied: false, ttl: 3600, type: 'A', value: '76.76.21.21'}])
+    expect(result.records).to.deep.equal([{ name: '@', proxied: false, ttl: 3600, type: 'A', value: '76.76.21.21' }])
   })
 
   it('uses a named provider account when linking with --account', async () => {
     await saveConfig({
       providers: {
         spaceship: {
-          accounts: {work: {credentials: {apiKey: 'work_key', apiSecret: 'work_secret'}}},
-          credentials: {apiKey: 'default_key', apiSecret: 'default_secret'},
+          accounts: { work: { credentials: { apiKey: 'work_key', apiSecret: 'work_secret' } } },
+          credentials: { apiKey: 'default_key', apiSecret: 'default_secret' },
         },
       },
     })
@@ -381,13 +385,19 @@ describe('link', () => {
       const headers = init?.headers as Record<string, string>
       if (url.hostname === 'spaceship.dev' && url.pathname === '/api/v1/domains') {
         expect(headers['X-Api-Key']).to.equal('work_key')
-        return jsonResponse({items: [{name: 'example.com'}], total: 1})
+        return jsonResponse({ items: [{ name: 'example.com' }], total: 1 })
       }
 
       throw new Error(`Unexpected request: ${url.href}`)
     }) as typeof fetch
 
-    const result = await linkDomain({account: 'work', domain: 'app.example.com', dryRun: true, project: 'prj_123', provider: 'spaceship'})
+    const result = await linkDomain({
+      account: 'work',
+      domain: 'app.example.com',
+      dryRun: true,
+      project: 'prj_123',
+      provider: 'spaceship',
+    })
 
     expect(result.provider).to.equal('spaceship')
     expect(result.account).to.equal('work')
@@ -400,8 +410,8 @@ describe('link', () => {
     await saveConfig({
       providers: {
         spaceship: {
-          accounts: {work: {credentials: {apiKey: 'work_key', apiSecret: 'work_secret'}}},
-          credentials: {apiKey: 'default_key', apiSecret: 'default_secret'},
+          accounts: { work: { credentials: { apiKey: 'work_key', apiSecret: 'work_secret' } } },
+          credentials: { apiKey: 'default_key', apiSecret: 'default_secret' },
         },
       },
     })
@@ -409,7 +419,7 @@ describe('link', () => {
     globalThis.fetch = (async (input) => {
       const url = new URL(String(input))
       if (url.hostname === 'spaceship.dev' && url.pathname === '/api/v1/domains') {
-        return jsonResponse({items: [{name: 'example.com'}], total: 1})
+        return jsonResponse({ items: [{ name: 'example.com' }], total: 1 })
       }
 
       throw new Error(`Unexpected request: ${url.href}`)
@@ -417,7 +427,7 @@ describe('link', () => {
 
     let error: unknown
     try {
-      await linkDomain({domain: 'app.example.com', dryRun: true, project: 'prj_123', provider: 'spaceship'})
+      await linkDomain({ domain: 'app.example.com', dryRun: true, project: 'prj_123', provider: 'spaceship' })
     } catch (error_) {
       error = error_
     }
@@ -426,8 +436,20 @@ describe('link', () => {
     expect((error as DoomainError).code).to.equal('PROVIDER_ZONE_AMBIGUOUS')
     expect((error as DoomainError).details).to.deep.equal({
       candidates: [
-        {account: 'default', isDefaultAccount: true, provider: 'spaceship', providerName: 'Spaceship', zoneDomain: 'example.com'},
-        {account: 'work', isDefaultAccount: false, provider: 'spaceship', providerName: 'Spaceship', zoneDomain: 'example.com'},
+        {
+          account: 'default',
+          isDefaultAccount: true,
+          provider: 'spaceship',
+          providerName: 'Spaceship',
+          zoneDomain: 'example.com',
+        },
+        {
+          account: 'work',
+          isDefaultAccount: false,
+          provider: 'spaceship',
+          providerName: 'Spaceship',
+          zoneDomain: 'example.com',
+        },
       ],
       domain: 'app.example.com',
     })
@@ -437,8 +459,8 @@ describe('link', () => {
     await saveConfig({
       providers: {
         spaceship: {
-          accounts: {work: {credentials: {apiKey: 'work_key', apiSecret: 'work_secret'}}},
-          credentials: {apiKey: 'expired_key', apiSecret: 'expired_secret'},
+          accounts: { work: { credentials: { apiKey: 'work_key', apiSecret: 'work_secret' } } },
+          credentials: { apiKey: 'expired_key', apiSecret: 'expired_secret' },
         },
       },
     })
@@ -448,8 +470,8 @@ describe('link', () => {
       const headers = init?.headers as Record<string, string>
       if (url.hostname === 'spaceship.dev' && url.pathname === '/api/v1/domains') {
         return headers['X-Api-Key'] === 'work_key'
-          ? jsonResponse({items: [{name: 'example.com'}], total: 1})
-          : jsonErrorResponse(401, {message: 'Unauthenticated.'})
+          ? jsonResponse({ items: [{ name: 'example.com' }], total: 1 })
+          : jsonErrorResponse(401, { message: 'Unauthenticated.' })
       }
 
       throw new Error(`Unexpected request: ${url.href}`)
@@ -457,7 +479,7 @@ describe('link', () => {
 
     let error: unknown
     try {
-      await linkDomain({domain: 'app.example.com', dryRun: true, project: 'prj_123', provider: 'spaceship'})
+      await linkDomain({ domain: 'app.example.com', dryRun: true, project: 'prj_123', provider: 'spaceship' })
     } catch (error_) {
       error = error_
     }
@@ -470,8 +492,8 @@ describe('link', () => {
     await saveConfig({
       providers: {
         spaceship: {
-          accounts: {work: {credentials: {apiKey: 'work_key', apiSecret: 'work_secret'}}},
-          credentials: {apiKey: 'default_key', apiSecret: 'default_secret'},
+          accounts: { work: { credentials: { apiKey: 'work_key', apiSecret: 'work_secret' } } },
+          credentials: { apiKey: 'default_key', apiSecret: 'default_secret' },
         },
       },
     })
@@ -481,14 +503,14 @@ describe('link', () => {
       const headers = init?.headers as Record<string, string>
       if (url.hostname === 'spaceship.dev' && url.pathname === '/api/v1/domains') {
         return headers['X-Api-Key'] === 'work_key'
-          ? jsonResponse({items: [{name: 'dev.example.com'}], total: 1})
-          : jsonResponse({items: [{name: 'example.com'}], total: 1})
+          ? jsonResponse({ items: [{ name: 'dev.example.com' }], total: 1 })
+          : jsonResponse({ items: [{ name: 'example.com' }], total: 1 })
       }
 
       throw new Error(`Unexpected request: ${url.href}`)
     }) as typeof fetch
 
-    const result = await linkDomain({domain: 'api.dev.example.com', dryRun: true, project: 'prj_123'})
+    const result = await linkDomain({ domain: 'api.dev.example.com', dryRun: true, project: 'prj_123' })
 
     expect(result.provider).to.equal('spaceship')
     expect(result.providerInferred).to.equal(true)
@@ -499,35 +521,48 @@ describe('link', () => {
   })
 
   it('fails clearly when an explicit named provider account is missing credentials', async () => {
-    await saveConfig({providers: {spaceship: {credentials: {apiKey: 'default_key', apiSecret: 'default_secret'}}}})
+    await saveConfig({
+      providers: { spaceship: { credentials: { apiKey: 'default_key', apiSecret: 'default_secret' } } },
+    })
 
     let error: unknown
     try {
-      await linkDomain({account: 'work', domain: 'app.example.com', dryRun: true, project: 'prj_123', provider: 'spaceship'})
+      await linkDomain({
+        account: 'work',
+        domain: 'app.example.com',
+        dryRun: true,
+        project: 'prj_123',
+        provider: 'spaceship',
+      })
     } catch (error_) {
       error = error_
     }
 
     expect(error).to.be.instanceOf(DoomainError)
     expect((error as DoomainError).code).to.equal('MISSING_CREDENTIALS')
-    expect((error as DoomainError).details).to.deep.equal({account: 'work', provider: 'spaceship'})
+    expect((error as DoomainError).details).to.deep.equal({ account: 'work', provider: 'spaceship' })
   })
 
   it('treats legacy Spaceship credentials as the default account', async () => {
-    await saveConfig({providers: {spaceship: {apiKey: 'legacy_key', apiSecret: 'legacy_secret'}}})
+    await saveConfig({ providers: { spaceship: { apiKey: 'legacy_key', apiSecret: 'legacy_secret' } } })
 
     globalThis.fetch = (async (input, init) => {
       const url = new URL(String(input))
       const headers = init?.headers as Record<string, string>
       if (url.hostname === 'spaceship.dev' && url.pathname === '/api/v1/domains') {
         expect(headers['X-Api-Key']).to.equal('legacy_key')
-        return jsonResponse({items: [{name: 'example.com'}], total: 1})
+        return jsonResponse({ items: [{ name: 'example.com' }], total: 1 })
       }
 
       throw new Error(`Unexpected request: ${url.href}`)
     }) as typeof fetch
 
-    const result = await linkDomain({domain: 'app.example.com', dryRun: true, project: 'prj_123', provider: 'spaceship'})
+    const result = await linkDomain({
+      domain: 'app.example.com',
+      dryRun: true,
+      project: 'prj_123',
+      provider: 'spaceship',
+    })
 
     expect(result.account).to.equal('default')
     expect(result.isDefaultAccount).to.equal(true)
@@ -543,7 +578,7 @@ describe('link', () => {
     globalThis.fetch = (async (input) => {
       const url = new URL(String(input))
       if (url.hostname === 'api.cloudflare.com' && url.pathname === '/client/v4/zones') {
-        return jsonResponse(cloudflareResponse([{id: 'zone_1', name: 'example.com'}]))
+        return jsonResponse(cloudflareResponse([{ id: 'zone_1', name: 'example.com' }]))
       }
 
       if (url.hostname === 'api.namecheap.com') return textResponse(namecheapDomainListXml(['example.com']))
@@ -552,7 +587,7 @@ describe('link', () => {
 
     let error: unknown
     try {
-      await linkDomain({domain: 'app.example.com', dryRun: true, project: 'prj_123'})
+      await linkDomain({ domain: 'app.example.com', dryRun: true, project: 'prj_123' })
     } catch (error_) {
       error = error_
     }
@@ -561,8 +596,20 @@ describe('link', () => {
     expect((error as DoomainError).code).to.equal('PROVIDER_ZONE_AMBIGUOUS')
     expect((error as DoomainError).details).to.deep.equal({
       candidates: [
-        {account: 'default', isDefaultAccount: true, provider: 'namecheap', providerName: 'Namecheap', zoneDomain: 'example.com'},
-        {account: 'default', isDefaultAccount: true, provider: 'cloudflare', providerName: 'Cloudflare', zoneDomain: 'example.com'},
+        {
+          account: 'default',
+          isDefaultAccount: true,
+          provider: 'namecheap',
+          providerName: 'Namecheap',
+          zoneDomain: 'example.com',
+        },
+        {
+          account: 'default',
+          isDefaultAccount: true,
+          provider: 'cloudflare',
+          providerName: 'Cloudflare',
+          zoneDomain: 'example.com',
+        },
       ],
       domain: 'app.example.com',
     })
@@ -571,7 +618,7 @@ describe('link', () => {
   it('returns recovery details when no DNS provider is configured', async () => {
     let error: unknown
     try {
-      await linkDomain({domain: 'app.example.com', dryRun: true, project: 'prj_123'})
+      await linkDomain({ domain: 'app.example.com', dryRun: true, project: 'prj_123' })
     } catch (error_) {
       error = error_
     }
@@ -590,7 +637,7 @@ describe('link', () => {
     globalThis.fetch = (async (input) => {
       const url = new URL(String(input))
       if (url.hostname === 'spaceship.dev' && url.pathname === '/api/v1/domains') {
-        return jsonResponse({items: [{name: 'other.dev'}], total: 1})
+        return jsonResponse({ items: [{ name: 'other.dev' }], total: 1 })
       }
 
       throw new Error(`Unexpected request: ${url.href}`)
@@ -598,7 +645,7 @@ describe('link', () => {
 
     let error: unknown
     try {
-      await linkDomain({domain: 'app.example.com', dryRun: true, project: 'prj_123'})
+      await linkDomain({ domain: 'app.example.com', dryRun: true, project: 'prj_123' })
     } catch (error_) {
       error = error_
     }
@@ -611,7 +658,9 @@ describe('link', () => {
         'Retry with --provider <id> --account <alias> only if another configured provider account owns this zone. Otherwise connect the DNS provider account that owns this domain.',
     })
     expect((error as DoomainError).details).to.deep.include({
-      searchedZones: [{account: 'default', displayName: 'Spaceship', id: 'spaceship', isDefaultAccount: true, zones: ['other.dev']}],
+      searchedZones: [
+        { account: 'default', displayName: 'Spaceship', id: 'spaceship', isDefaultAccount: true, zones: ['other.dev'] },
+      ],
     })
   })
 
@@ -629,15 +678,18 @@ describe('link', () => {
       if (url.hostname === 'api.vercel.com') {
         if (method === 'GET' && url.pathname === '/v6/domains/app.example.com/config') return jsonResponse({})
         if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains') {
-          return jsonResponse({name: 'app.example.com', verified: true})
+          return jsonResponse({ name: 'app.example.com', verified: true })
         }
       }
 
       if (url.hostname === 'api.cloudflare.com') {
-        if (method === 'GET' && url.pathname === '/client/v4/zones') return jsonResponse(cloudflareResponse([{id: 'zone_1', name: 'example.com'}]))
+        if (method === 'GET' && url.pathname === '/client/v4/zones')
+          return jsonResponse(cloudflareResponse([{ id: 'zone_1', name: 'example.com' }]))
         if (method === 'GET' && url.pathname === '/client/v4/zones/zone_1/dns_records') {
           return jsonResponse(
-            cloudflareResponse([{content: 'old.example.com', id: 'record_old', name: 'app.example.com', ttl: 3600, type: 'CNAME'}]),
+            cloudflareResponse([
+              { content: 'old.example.com', id: 'record_old', name: 'app.example.com', ttl: 3600, type: 'CNAME' },
+            ]),
           )
         }
       }
@@ -645,9 +697,9 @@ describe('link', () => {
       throw new Error(`Unexpected request: ${method} ${url.href}`)
     }) as typeof fetch
 
-    const {stdout} = await runCommand('link app.example.com --provider cloudflare --project prj_123 --json')
+    const { stdout } = await runCommand('link app.example.com --provider cloudflare --project prj_123 --json')
     const result = JSON.parse(stdout) as {
-      error: {code: string; details: {conflicts: Array<{existing: {value: string}}>}}
+      error: { code: string; details: { conflicts: Array<{ existing: { value: string } }> } }
       ok: boolean
     }
 
@@ -671,35 +723,47 @@ describe('link', () => {
 
       if (url.hostname === 'api.vercel.com') {
         if (method === 'GET' && url.pathname === '/v6/domains/app.example.com/config') return jsonResponse({})
-        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains') return jsonResponse({name: 'app.example.com', verified: true})
+        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains')
+          return jsonResponse({ name: 'app.example.com', verified: true })
         if (method === 'GET' && url.pathname === '/v9/projects/prj_123/domains/app.example.com') {
-          return jsonResponse({name: 'app.example.com', verified: true})
+          return jsonResponse({ name: 'app.example.com', verified: true })
         }
       }
 
       if (url.hostname === 'api.cloudflare.com') {
-        if (method === 'GET' && url.pathname === '/client/v4/zones') return jsonResponse(cloudflareResponse([{id: 'zone_1', name: 'example.com'}]))
+        if (method === 'GET' && url.pathname === '/client/v4/zones')
+          return jsonResponse(cloudflareResponse([{ id: 'zone_1', name: 'example.com' }]))
         if (method === 'GET' && url.pathname === '/client/v4/zones/zone_1/dns_records') {
           return jsonResponse(
-            cloudflareResponse([{content: 'old.example.com', id: 'record_old', name: 'app.example.com', ttl: 3600, type: 'CNAME'}]),
+            cloudflareResponse([
+              { content: 'old.example.com', id: 'record_old', name: 'app.example.com', ttl: 3600, type: 'CNAME' },
+            ]),
           )
         }
 
         if (method === 'PUT' && url.pathname === '/client/v4/zones/zone_1/dns_records/record_old') {
           const body = JSON.parse(String(init?.body)) as Record<string, unknown>
           dnsBodies.push(body)
-          return jsonResponse(cloudflareResponse({...body, id: 'record_old'}))
+          return jsonResponse(cloudflareResponse({ ...body, id: 'record_old' }))
         }
       }
 
       throw new Error(`Unexpected request: ${method} ${url.href}`)
     }) as typeof fetch
 
-    const result = await linkDomain({domain: 'app.example.com', force: true, project: 'prj_123', provider: 'cloudflare', wait: false})
+    const result = await linkDomain({
+      domain: 'app.example.com',
+      force: true,
+      project: 'prj_123',
+      provider: 'cloudflare',
+      wait: false,
+    })
 
     expect(result.dns.updated).to.equal(true)
     expect(requests).to.include('POST /v10/projects/prj_123/domains')
-    expect(dnsBodies).to.deep.equal([{content: 'cname.vercel-dns.com', name: 'app.example.com', proxied: false, ttl: 3600, type: 'CNAME'}])
+    expect(dnsBodies).to.deep.equal([
+      { content: 'cname.vercel-dns.com', name: 'app.example.com', proxied: false, ttl: 3600, type: 'CNAME' },
+    ])
   })
 
   it('uses confirmed DNS override for DNS writes without forcing Vercel moves', async () => {
@@ -717,24 +781,28 @@ describe('link', () => {
 
       if (url.hostname === 'api.vercel.com') {
         if (method === 'GET' && url.pathname === '/v6/domains/app.example.com/config') return jsonResponse({})
-        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains') return jsonResponse({name: 'app.example.com', verified: true})
+        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains')
+          return jsonResponse({ name: 'app.example.com', verified: true })
         if (method === 'GET' && url.pathname === '/v9/projects/prj_123/domains/app.example.com') {
-          return jsonResponse({name: 'app.example.com', verified: true})
+          return jsonResponse({ name: 'app.example.com', verified: true })
         }
       }
 
       if (url.hostname === 'api.cloudflare.com') {
-        if (method === 'GET' && url.pathname === '/client/v4/zones') return jsonResponse(cloudflareResponse([{id: 'zone_1', name: 'example.com'}]))
+        if (method === 'GET' && url.pathname === '/client/v4/zones')
+          return jsonResponse(cloudflareResponse([{ id: 'zone_1', name: 'example.com' }]))
         if (method === 'GET' && url.pathname === '/client/v4/zones/zone_1/dns_records') {
           return jsonResponse(
-            cloudflareResponse([{content: 'old.example.com', id: 'record_old', name: 'app.example.com', ttl: 3600, type: 'CNAME'}]),
+            cloudflareResponse([
+              { content: 'old.example.com', id: 'record_old', name: 'app.example.com', ttl: 3600, type: 'CNAME' },
+            ]),
           )
         }
 
         if (method === 'PUT' && url.pathname === '/client/v4/zones/zone_1/dns_records/record_old') {
           const body = JSON.parse(String(init?.body)) as Record<string, unknown>
           dnsBodies.push(body)
-          return jsonResponse(cloudflareResponse({...body, id: 'record_old'}))
+          return jsonResponse(cloudflareResponse({ ...body, id: 'record_old' }))
         }
       }
 
@@ -772,14 +840,18 @@ describe('link', () => {
 
       if (url.hostname === 'api.vercel.com') {
         if (method === 'GET' && url.pathname === '/v6/domains/app.example.com/config') return jsonResponse({})
-        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains') return jsonResponse({name: 'app.example.com', verified: true})
+        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains')
+          return jsonResponse({ name: 'app.example.com', verified: true })
       }
 
       if (url.hostname === 'api.cloudflare.com') {
-        if (method === 'GET' && url.pathname === '/client/v4/zones') return jsonResponse(cloudflareResponse([{id: 'zone_1', name: 'example.com'}]))
+        if (method === 'GET' && url.pathname === '/client/v4/zones')
+          return jsonResponse(cloudflareResponse([{ id: 'zone_1', name: 'example.com' }]))
         if (method === 'GET' && url.pathname === '/client/v4/zones/zone_1/dns_records') {
           return jsonResponse(
-            cloudflareResponse([{content: 'old.example.com', id: 'record_old', name: 'app.example.com', ttl: 3600, type: 'CNAME'}]),
+            cloudflareResponse([
+              { content: 'old.example.com', id: 'record_old', name: 'app.example.com', ttl: 3600, type: 'CNAME' },
+            ]),
           )
         }
       }
@@ -789,7 +861,13 @@ describe('link', () => {
 
     let error: unknown
     try {
-      await linkDomain({confirmDnsOverride: async () => false, domain: 'app.example.com', project: 'prj_123', provider: 'cloudflare', wait: false})
+      await linkDomain({
+        confirmDnsOverride: async () => false,
+        domain: 'app.example.com',
+        project: 'prj_123',
+        provider: 'cloudflare',
+        wait: false,
+      })
     } catch (error_) {
       error = error_
     }
@@ -812,18 +890,27 @@ describe('link', () => {
 
       if (url.hostname === 'api.vercel.com') {
         if (method === 'GET' && url.pathname === '/v6/domains/app.example.com/config') return jsonResponse({})
-        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains') return jsonResponse({name: 'app.example.com', verified: true})
+        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains')
+          return jsonResponse({ name: 'app.example.com', verified: true })
         if (method === 'GET' && url.pathname === '/v9/projects/prj_123/domains/app.example.com') {
-          return jsonResponse({name: 'app.example.com', verified: true})
+          return jsonResponse({ name: 'app.example.com', verified: true })
         }
       }
 
       if (url.hostname === 'api.cloudflare.com') {
-        if (method === 'GET' && url.pathname === '/client/v4/zones') return jsonResponse(cloudflareResponse([{id: 'zone_1', name: 'example.com'}]))
+        if (method === 'GET' && url.pathname === '/client/v4/zones')
+          return jsonResponse(cloudflareResponse([{ id: 'zone_1', name: 'example.com' }]))
         if (method === 'GET' && url.pathname === '/client/v4/zones/zone_1/dns_records') {
           return jsonResponse(
             cloudflareResponse([
-              {content: 'cname.vercel-dns.com', id: 'record_existing', name: 'app.example.com', proxied: false, ttl: 3600, type: 'CNAME'},
+              {
+                content: 'cname.vercel-dns.com',
+                id: 'record_existing',
+                name: 'app.example.com',
+                proxied: false,
+                ttl: 3600,
+                type: 'CNAME',
+              },
             ]),
           )
         }
@@ -887,7 +974,7 @@ describe('link', () => {
       if (url.hostname === 'api.vercel.com') {
         if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains') {
           expect(url.searchParams.get('teamId')).to.equal('team_123')
-          expect(JSON.parse(String(init?.body))).to.deep.equal({name: 'app.example.com'})
+          expect(JSON.parse(String(init?.body))).to.deep.equal({ name: 'app.example.com' })
           return jsonResponse({
             name: 'app.example.com',
             verified: false,
@@ -901,7 +988,7 @@ describe('link', () => {
           })
         }
         if (method === 'GET' && url.pathname === '/v6/domains/app.example.com/config') {
-          return jsonResponse({misconfigured: false, recommendedCNAME: [{rank: 1, value: 'cname.vercel-dns.com.'}]})
+          return jsonResponse({ misconfigured: false, recommendedCNAME: [{ rank: 1, value: 'cname.vercel-dns.com.' }] })
         }
 
         if (method === 'GET' && url.pathname === '/v9/projects/prj_123/domains/app.example.com') {
@@ -912,13 +999,13 @@ describe('link', () => {
         }
 
         if (method === 'POST' && url.pathname === '/v9/projects/prj_123/domains/app.example.com/verify') {
-          return jsonResponse({name: 'app.example.com', verified: true})
+          return jsonResponse({ name: 'app.example.com', verified: true })
         }
       }
 
       if (url.hostname === 'api.cloudflare.com') {
         if (method === 'GET' && url.pathname === '/client/v4/zones') {
-          return jsonResponse(cloudflareResponse([{id: 'zone_1', name: 'example.com'}]))
+          return jsonResponse(cloudflareResponse([{ id: 'zone_1', name: 'example.com' }]))
         }
 
         if (method === 'GET' && url.pathname === '/client/v4/zones/zone_1/dns_records') {
@@ -928,7 +1015,7 @@ describe('link', () => {
         if (method === 'POST' && url.pathname === '/client/v4/zones/zone_1/dns_records') {
           const body = JSON.parse(String(init?.body)) as Record<string, unknown>
           dnsBodies.push(body)
-          return jsonResponse(cloudflareResponse({...body, id: `record_${dnsBodies.length}`}))
+          return jsonResponse(cloudflareResponse({ ...body, id: `record_${dnsBodies.length}` }))
         }
       }
 
@@ -947,7 +1034,12 @@ describe('link', () => {
     expect(result.vercel.verified).to.equal(true)
     expect(requests).to.include('POST /v10/projects/prj_123/domains')
     expect(requests).to.include('POST /v9/projects/prj_123/domains/app.example.com/verify')
-    expect(dnsBodies).to.deep.include({content: 'vc-domain-verify=app.example.com,token', name: '_vercel.example.com', ttl: 3600, type: 'TXT'})
+    expect(dnsBodies).to.deep.include({
+      content: 'vc-domain-verify=app.example.com,token',
+      name: '_vercel.example.com',
+      ttl: 3600,
+      type: 'TXT',
+    })
   })
 
   it('does not treat a Vercel verify response without verified true as verified', async () => {
@@ -960,29 +1052,39 @@ describe('link', () => {
       const method = init?.method ?? 'GET'
 
       if (url.hostname === 'api.vercel.com') {
-        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains') return jsonResponse({name: 'app.example.com', verified: true})
-        if (method === 'GET' && url.pathname === '/v6/domains/app.example.com/config') return jsonResponse({misconfigured: false})
+        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains')
+          return jsonResponse({ name: 'app.example.com', verified: true })
+        if (method === 'GET' && url.pathname === '/v6/domains/app.example.com/config')
+          return jsonResponse({ misconfigured: false })
         if (method === 'GET' && url.pathname === '/v9/projects/prj_123/domains/app.example.com') {
-          return jsonResponse({name: 'app.example.com', verified: false})
+          return jsonResponse({ name: 'app.example.com', verified: false })
         }
 
         if (method === 'POST' && url.pathname === '/v9/projects/prj_123/domains/app.example.com/verify') {
-          return jsonResponse({name: 'app.example.com'})
+          return jsonResponse({ name: 'app.example.com' })
         }
       }
 
       if (url.hostname === 'api.cloudflare.com') {
-        if (method === 'GET' && url.pathname === '/client/v4/zones') return jsonResponse(cloudflareResponse([{id: 'zone_1', name: 'example.com'}]))
-        if (method === 'GET' && url.pathname === '/client/v4/zones/zone_1/dns_records') return jsonResponse(cloudflareResponse([]))
+        if (method === 'GET' && url.pathname === '/client/v4/zones')
+          return jsonResponse(cloudflareResponse([{ id: 'zone_1', name: 'example.com' }]))
+        if (method === 'GET' && url.pathname === '/client/v4/zones/zone_1/dns_records')
+          return jsonResponse(cloudflareResponse([]))
         if (method === 'POST' && url.pathname === '/client/v4/zones/zone_1/dns_records') {
-          return jsonResponse(cloudflareResponse({...JSON.parse(String(init?.body)), id: 'record_1'}))
+          return jsonResponse(cloudflareResponse({ ...JSON.parse(String(init?.body)), id: 'record_1' }))
         }
       }
 
       throw new Error(`Unexpected request: ${method} ${url.href}`)
     }) as typeof fetch
 
-    const result = await linkDomain({domain: 'example.com', project: 'prj_123', provider: 'cloudflare', subdomain: 'app', timeoutSeconds: 0})
+    const result = await linkDomain({
+      domain: 'example.com',
+      project: 'prj_123',
+      provider: 'cloudflare',
+      subdomain: 'app',
+      timeoutSeconds: 0,
+    })
 
     expect(result.vercel.verified).to.equal(false)
   })
@@ -997,25 +1099,28 @@ describe('link', () => {
       const method = init?.method ?? 'GET'
 
       if (url.hostname === 'api.vercel.com') {
-        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains') return jsonResponse({name: 'app.example.com', verified: true})
+        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains')
+          return jsonResponse({ name: 'app.example.com', verified: true })
         if (method === 'GET' && url.pathname === '/v6/domains/app.example.com/config') {
-          return jsonResponse({conflicts: [{type: 'CNAME'}], misconfigured: true})
+          return jsonResponse({ conflicts: [{ type: 'CNAME' }], misconfigured: true })
         }
 
         if (method === 'GET' && url.pathname === '/v9/projects/prj_123/domains/app.example.com') {
-          return jsonResponse({name: 'app.example.com', verified: true})
+          return jsonResponse({ name: 'app.example.com', verified: true })
         }
 
         if (method === 'POST' && url.pathname === '/v9/projects/prj_123/domains/app.example.com/verify') {
-          return jsonResponse({name: 'app.example.com', verified: true})
+          return jsonResponse({ name: 'app.example.com', verified: true })
         }
       }
 
       if (url.hostname === 'api.cloudflare.com') {
-        if (method === 'GET' && url.pathname === '/client/v4/zones') return jsonResponse(cloudflareResponse([{id: 'zone_1', name: 'example.com'}]))
-        if (method === 'GET' && url.pathname === '/client/v4/zones/zone_1/dns_records') return jsonResponse(cloudflareResponse([]))
+        if (method === 'GET' && url.pathname === '/client/v4/zones')
+          return jsonResponse(cloudflareResponse([{ id: 'zone_1', name: 'example.com' }]))
+        if (method === 'GET' && url.pathname === '/client/v4/zones/zone_1/dns_records')
+          return jsonResponse(cloudflareResponse([]))
         if (method === 'POST' && url.pathname === '/client/v4/zones/zone_1/dns_records') {
-          return jsonResponse(cloudflareResponse({...JSON.parse(String(init?.body)), id: 'record_1'}))
+          return jsonResponse(cloudflareResponse({ ...JSON.parse(String(init?.body)), id: 'record_1' }))
         }
       }
 
@@ -1024,14 +1129,22 @@ describe('link', () => {
 
     let error: unknown
     try {
-      await linkDomain({domain: 'example.com', project: 'prj_123', provider: 'cloudflare', subdomain: 'app', timeoutSeconds: 0})
+      await linkDomain({
+        domain: 'example.com',
+        project: 'prj_123',
+        provider: 'cloudflare',
+        subdomain: 'app',
+        timeoutSeconds: 0,
+      })
     } catch (error_) {
       error = error_
     }
 
     expect(error).to.be.instanceOf(DoomainError)
     expect((error as DoomainError).code).to.equal('DOMAIN_VERIFY_FAILED')
-    expect((error as DoomainError).details).to.deep.equal({domainConfig: {conflicts: [{type: 'CNAME'}], misconfigured: true}})
+    expect((error as DoomainError).details).to.deep.equal({
+      domainConfig: { conflicts: [{ type: 'CNAME' }], misconfigured: true },
+    })
   })
 
   it('applies Vercel ownership TXT records returned from verify errors', async () => {
@@ -1045,27 +1158,33 @@ describe('link', () => {
       const method = init?.method ?? 'GET'
 
       if (url.hostname === 'api.vercel.com') {
-        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains') return jsonResponse({name: 'app.example.com', verified: true})
-        if (method === 'GET' && url.pathname === '/v6/domains/app.example.com/config') return jsonResponse({misconfigured: false})
+        if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains')
+          return jsonResponse({ name: 'app.example.com', verified: true })
+        if (method === 'GET' && url.pathname === '/v6/domains/app.example.com/config')
+          return jsonResponse({ misconfigured: false })
         if (method === 'GET' && url.pathname === '/v9/projects/prj_123/domains/app.example.com') {
-          return jsonResponse({name: 'app.example.com', verified: false})
+          return jsonResponse({ name: 'app.example.com', verified: false })
         }
 
         if (method === 'POST' && url.pathname === '/v9/projects/prj_123/domains/app.example.com/verify') {
           return jsonErrorResponse(400, {
-            error: {code: 'domain_verification_failed', message: 'Missing ownership verification.'},
-            verification: [{domain: '_vercel.example.com', type: 'TXT', value: 'vc-domain-verify=app.example.com,late-token'}],
+            error: { code: 'domain_verification_failed', message: 'Missing ownership verification.' },
+            verification: [
+              { domain: '_vercel.example.com', type: 'TXT', value: 'vc-domain-verify=app.example.com,late-token' },
+            ],
           })
         }
       }
 
       if (url.hostname === 'api.cloudflare.com') {
-        if (method === 'GET' && url.pathname === '/client/v4/zones') return jsonResponse(cloudflareResponse([{id: 'zone_1', name: 'example.com'}]))
-        if (method === 'GET' && url.pathname === '/client/v4/zones/zone_1/dns_records') return jsonResponse(cloudflareResponse([]))
+        if (method === 'GET' && url.pathname === '/client/v4/zones')
+          return jsonResponse(cloudflareResponse([{ id: 'zone_1', name: 'example.com' }]))
+        if (method === 'GET' && url.pathname === '/client/v4/zones/zone_1/dns_records')
+          return jsonResponse(cloudflareResponse([]))
         if (method === 'POST' && url.pathname === '/client/v4/zones/zone_1/dns_records') {
           const body = JSON.parse(String(init?.body)) as Record<string, unknown>
           dnsBodies.push(body)
-          return jsonResponse(cloudflareResponse({...body, id: `record_${dnsBodies.length}`}))
+          return jsonResponse(cloudflareResponse({ ...body, id: `record_${dnsBodies.length}` }))
         }
       }
 
@@ -1074,13 +1193,24 @@ describe('link', () => {
 
     let error: unknown
     try {
-      await linkDomain({domain: 'example.com', project: 'prj_123', provider: 'cloudflare', subdomain: 'app', timeoutSeconds: 0})
+      await linkDomain({
+        domain: 'example.com',
+        project: 'prj_123',
+        provider: 'cloudflare',
+        subdomain: 'app',
+        timeoutSeconds: 0,
+      })
     } catch (error_) {
       error = error_
     }
 
     expect(error).to.be.instanceOf(DoomainError)
-    expect(dnsBodies).to.deep.include({content: 'vc-domain-verify=app.example.com,late-token', name: '_vercel.example.com', ttl: 3600, type: 'TXT'})
+    expect(dnsBodies).to.deep.include({
+      content: 'vc-domain-verify=app.example.com,late-token',
+      name: '_vercel.example.com',
+      ttl: 3600,
+      type: 'TXT',
+    })
   })
 
   it('does not treat a Vercel domain conflict as already added unless it is on the target project', async () => {
@@ -1090,11 +1220,13 @@ describe('link', () => {
 
       if (url.hostname === 'api.vercel.com') {
         if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains') {
-          return jsonErrorResponse(409, {error: {code: 'ALIAS_DOMAIN_EXIST', message: 'Domain is already assigned.'}})
+          return jsonErrorResponse(409, {
+            error: { code: 'ALIAS_DOMAIN_EXIST', message: 'Domain is already assigned.' },
+          })
         }
 
         if (method === 'GET' && url.pathname === '/v9/projects/prj_123/domains/app.example.com') {
-          return jsonErrorResponse(404, {error: {code: 'not_found', message: 'Project Domain not found.'}})
+          return jsonErrorResponse(404, { error: { code: 'not_found', message: 'Project Domain not found.' } })
         }
       }
 
@@ -1103,7 +1235,7 @@ describe('link', () => {
 
     let error: unknown
     try {
-      await createVercelClient({token: 'vercel_token'}).addDomainToProject('prj_123', 'app.example.com')
+      await createVercelClient({ token: 'vercel_token' }).addDomainToProject('prj_123', 'app.example.com')
     } catch (error_) {
       error = error_
     }
@@ -1120,21 +1252,23 @@ describe('link', () => {
 
       if (url.hostname === 'api.vercel.com') {
         if (method === 'POST' && url.pathname === '/v10/projects/prj_123/domains') {
-          return jsonErrorResponse(409, {error: {code: 'ALIAS_DOMAIN_EXIST', message: 'Domain is already assigned.'}})
+          return jsonErrorResponse(409, {
+            error: { code: 'ALIAS_DOMAIN_EXIST', message: 'Domain is already assigned.' },
+          })
         }
 
         if (method === 'GET' && url.pathname === '/v9/projects/prj_123/domains/app.example.com') {
-          return jsonResponse({name: 'app.example.com', verified: true})
+          return jsonResponse({ name: 'app.example.com', verified: true })
         }
       }
 
       throw new Error(`Unexpected request: ${method} ${url.href}`)
     }) as typeof fetch
 
-    const result = await createVercelClient({token: 'vercel_token'}).addDomainToProject('prj_123', 'app.example.com')
+    const result = await createVercelClient({ token: 'vercel_token' }).addDomainToProject('prj_123', 'app.example.com')
 
     expect(result.alreadyAdded).to.equal(true)
-    expect(result.raw).to.deep.equal({name: 'app.example.com', verified: true})
+    expect(result.raw).to.deep.equal({ name: 'app.example.com', verified: true })
   })
 
   it('moves a Vercel domain from another project when force is enabled', async () => {
@@ -1150,20 +1284,20 @@ describe('link', () => {
         if (method === 'POST' && url.pathname === '/v10/projects/prj_new/domains') {
           addAttempts += 1
           return addAttempts === 1
-            ? jsonErrorResponse(409, {error: {code: 'ALIAS_DOMAIN_EXIST', message: 'Domain is already assigned.'}})
-            : jsonResponse({name: 'app.example.com', verified: true})
+            ? jsonErrorResponse(409, { error: { code: 'ALIAS_DOMAIN_EXIST', message: 'Domain is already assigned.' } })
+            : jsonResponse({ name: 'app.example.com', verified: true })
         }
 
         if (method === 'GET' && url.pathname === '/v9/projects/prj_new/domains/app.example.com') {
-          return jsonErrorResponse(404, {error: {code: 'not_found', message: 'Project Domain not found.'}})
+          return jsonErrorResponse(404, { error: { code: 'not_found', message: 'Project Domain not found.' } })
         }
 
         if (method === 'GET' && url.pathname === '/v9/projects') {
-          return jsonResponse({projects: [{id: 'prj_old', name: 'old-project'}]})
+          return jsonResponse({ projects: [{ id: 'prj_old', name: 'old-project' }] })
         }
 
         if (method === 'GET' && url.pathname === '/v9/projects/prj_old/domains') {
-          return jsonResponse({domains: [{name: 'app.example.com', projectId: 'prj_old'}]})
+          return jsonResponse({ domains: [{ name: 'app.example.com', projectId: 'prj_old' }] })
         }
 
         if (method === 'DELETE' && url.pathname === '/v9/projects/prj_old/domains/app.example.com') {
@@ -1174,12 +1308,16 @@ describe('link', () => {
       throw new Error(`Unexpected request: ${method} ${url.href}`)
     }) as typeof fetch
 
-    const result = await createVercelClient({token: 'vercel_token'}).addDomainToProject('prj_new', 'app.example.com', {
-      force: true,
-    })
+    const result = await createVercelClient({ token: 'vercel_token' }).addDomainToProject(
+      'prj_new',
+      'app.example.com',
+      {
+        force: true,
+      },
+    )
 
     expect(result.alreadyAdded).to.equal(false)
-    expect(result.raw).to.deep.equal({name: 'app.example.com', verified: true})
+    expect(result.raw).to.deep.equal({ name: 'app.example.com', verified: true })
     expect(requests).to.include('DELETE /v9/projects/prj_old/domains/app.example.com')
   })
 })

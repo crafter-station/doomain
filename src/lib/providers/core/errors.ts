@@ -1,4 +1,4 @@
-import {DoomainError, type DoomainErrorCode} from '../../errors.js'
+import { DoomainError, type DoomainErrorCode } from '../../errors.js'
 
 export class ProviderError extends DoomainError {
   readonly providerId: string

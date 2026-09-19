@@ -1,6 +1,6 @@
-import {loadConfig} from './config.js'
-import {DoomainError} from './errors.js'
-import {listGlobalVercelTokens} from './vercel-auth.js'
+import { loadConfig } from './config.js'
+import { DoomainError } from './errors.js'
+import { listGlobalVercelTokens } from './vercel-auth.js'
 
 const VERCEL_API_URL = 'https://api.vercel.com'
 export const VERCEL_APEX_A_RECORD = '76.76.21.21'
@@ -39,7 +39,7 @@ interface VercelApiErrorBody {
 type VercelAddDomainResponse = Array<Record<string, unknown>> | Record<string, unknown>
 
 interface VercelProjectDomainOwner {
-  domain: Record<string, unknown> & {name?: string; projectId?: string}
+  domain: Record<string, unknown> & { name?: string; projectId?: string }
   project: VercelProject
 }
 
@@ -49,11 +49,11 @@ interface VercelProjectsResponse {
     next?: number | string | null
     prev?: number | string | null
   }
-  projects: Array<{id: string; name: string; framework?: string | null; updatedAt?: number | null}>
+  projects: Array<{ id: string; name: string; framework?: string | null; updatedAt?: number | null }>
 }
 
 interface VercelProjectDomainsResponse {
-  domains?: Array<Record<string, unknown> & {name?: string; projectId?: string}>
+  domains?: Array<Record<string, unknown> & { name?: string; projectId?: string }>
 }
 
 interface VercelTeamsResponse {
@@ -62,7 +62,7 @@ interface VercelTeamsResponse {
     next?: number | string | null
     prev?: number | string | null
   }
-  teams: Array<{id: string; membership?: {role?: string | null}; name?: string | null; slug?: string}>
+  teams: Array<{ id: string; membership?: { role?: string | null }; name?: string | null; slug?: string }>
 }
 
 export async function resolveVercelConfig(): Promise<VercelConfig> {
@@ -71,10 +71,13 @@ export async function resolveVercelConfig(): Promise<VercelConfig> {
   const teamId = process.env.VERCEL_TEAM_ID || config.vercel?.teamId
 
   if (!token) {
-    throw new DoomainError('MISSING_CREDENTIALS', 'Missing Vercel token. Run `doomain auth vercel`, set VERCEL_TOKEN, or sign in with Vercel CLI.')
+    throw new DoomainError(
+      'MISSING_CREDENTIALS',
+      'Missing Vercel token. Run `doomain auth vercel`, set VERCEL_TOKEN, or sign in with Vercel CLI.',
+    )
   }
 
-  return {token, teamId}
+  return { token, teamId }
 }
 
 function appendTeam(path: string, teamId?: string): string {
@@ -119,12 +122,13 @@ function findProjectDomainTarget(raw: unknown, domain: string): unknown {
     (target) =>
       target &&
       typeof target === 'object' &&
-      (isSameDomain((target as Record<string, unknown>).domain, domain) || isSameDomain((target as Record<string, unknown>).name, domain)),
+      (isSameDomain((target as Record<string, unknown>).domain, domain) ||
+        isSameDomain((target as Record<string, unknown>).name, domain)),
   )
 }
 
 export function createVercelClient(config: VercelConfig) {
-  async function request<T>(path: string, init: RequestInit = {}, opts: {team?: boolean} = {}): Promise<T> {
+  async function request<T>(path: string, init: RequestInit = {}, opts: { team?: boolean } = {}): Promise<T> {
     const response = await fetch(`${VERCEL_API_URL}${opts.team === false ? path : appendTeam(path, config.teamId)}`, {
       ...init,
       headers: {
@@ -154,10 +158,10 @@ export function createVercelClient(config: VercelConfig) {
       let cursor: string | undefined
 
       for (let page = 0; page < 25; page += 1) {
-        const query = new URLSearchParams({limit: '100'})
+        const query = new URLSearchParams({ limit: '100' })
         if (cursor) query.set('until', cursor)
 
-        const result = await request<VercelTeamsResponse>(`/v2/teams?${query.toString()}`, {}, {team: false})
+        const result = await request<VercelTeamsResponse>(`/v2/teams?${query.toString()}`, {}, { team: false })
 
         for (const team of result.teams) {
           teamsById.set(team.id, {
@@ -184,7 +188,7 @@ export function createVercelClient(config: VercelConfig) {
       let cursor: string | undefined
 
       for (let page = 0; page < 25; page += 1) {
-        const query = new URLSearchParams({limit: '100'})
+        const query = new URLSearchParams({ limit: '100' })
         if (search) query.set('search', search)
         if (cursor) query.set('from', cursor)
 
@@ -209,11 +213,15 @@ export function createVercelClient(config: VercelConfig) {
       return [...projectsById.values()].sort((a, b) => a.name.localeCompare(b.name))
     },
 
-    async addDomainToProject(project: string, domain: string, opts: {force?: boolean} = {}): Promise<{alreadyAdded: boolean; raw?: unknown}> {
+    async addDomainToProject(
+      project: string,
+      domain: string,
+      opts: { force?: boolean } = {},
+    ): Promise<{ alreadyAdded: boolean; raw?: unknown }> {
       try {
         const raw = await request<VercelAddDomainResponse>(`/v10/projects/${encodeURIComponent(project)}/domains`, {
           method: 'POST',
-          body: JSON.stringify({name: domain}),
+          body: JSON.stringify({ name: domain }),
         })
         const projectDomain = findProjectDomainTarget(raw, domain)
         if (!projectDomain) {
@@ -224,11 +232,11 @@ export function createVercelClient(config: VercelConfig) {
           )
         }
 
-        return {alreadyAdded: false, raw: projectDomain}
+        return { alreadyAdded: false, raw: projectDomain }
       } catch (error) {
         if (isDomainConflictError(error)) {
           const projectDomain = await this.getProjectDomain(project, domain).catch(() => undefined)
-          if (projectDomain) return {alreadyAdded: true, raw: projectDomain}
+          if (projectDomain) return { alreadyAdded: true, raw: projectDomain }
 
           if (opts.force) {
             const owner = await this.findProjectDomainOwner(domain)
@@ -253,7 +261,7 @@ export function createVercelClient(config: VercelConfig) {
       for (const project of await this.listProjects()) {
         const domains = await this.listProjectDomains(project.id).catch(() => [])
         const match = domains.find((item) => isSameDomain(item.name, domain))
-        if (match) return {domain: match, project}
+        if (match) return { domain: match, project }
       }
 
       return undefined
@@ -265,7 +273,7 @@ export function createVercelClient(config: VercelConfig) {
 
     async getRecommendedCname(domain: string): Promise<string> {
       const config = await this.getDomainConfig(domain).catch(() => undefined)
-      const recommended = (config?.recommendedCNAME as Array<{rank?: number; value?: string}> | undefined)?.sort(
+      const recommended = (config?.recommendedCNAME as Array<{ rank?: number; value?: string }> | undefined)?.sort(
         (a, b) => (a.rank ?? 999) - (b.rank ?? 999),
       )[0]
 
@@ -278,19 +286,23 @@ export function createVercelClient(config: VercelConfig) {
       )
     },
 
-    async listProjectDomains(project: string): Promise<Array<Record<string, unknown> & {name?: string; projectId?: string}>> {
+    async listProjectDomains(
+      project: string,
+    ): Promise<Array<Record<string, unknown> & { name?: string; projectId?: string }>> {
       const result = await request<VercelProjectDomainsResponse>(`/v9/projects/${encodeURIComponent(project)}/domains`)
       return result.domains ?? []
     },
 
     async removeDomainFromProject(project: string, domain: string): Promise<void> {
-      await request(`/v9/projects/${encodeURIComponent(project)}/domains/${encodeURIComponent(domain)}`, {method: 'DELETE'})
+      await request(`/v9/projects/${encodeURIComponent(project)}/domains/${encodeURIComponent(domain)}`, {
+        method: 'DELETE',
+      })
     },
 
     async verifyProjectDomain(project: string, domain: string): Promise<Record<string, unknown>> {
       return request<Record<string, unknown>>(
         `/v9/projects/${encodeURIComponent(project)}/domains/${encodeURIComponent(domain)}/verify`,
-        {method: 'POST'},
+        { method: 'POST' },
       )
     },
   }

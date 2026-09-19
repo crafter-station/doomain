@@ -1,5 +1,5 @@
-import {loadConfig} from './config.js'
-import {DoomainError, type DoomainErrorCode} from './errors.js'
+import { loadConfig } from './config.js'
+import { DoomainError, type DoomainErrorCode } from './errors.js'
 import {
   DEFAULT_PROVIDER_ACCOUNT,
   isDefaultProviderAccount,
@@ -7,10 +7,10 @@ import {
   normalizeProviderAccount,
   type ProviderAccountRef,
 } from './providers/core/config.js'
-import {createProvider, getProviderDefinition, listProviderDefinitions} from './providers/registry.js'
-import {listProviderStatuses} from './providers/status.js'
-import type {DnsProviderDefinition, DnsZone} from './providers/types.js'
-import {normalizeDomain, normalizeSubdomain} from './validate.js'
+import { createProvider, getProviderDefinition, listProviderDefinitions } from './providers/registry.js'
+import { listProviderStatuses } from './providers/status.js'
+import type { DnsProviderDefinition, DnsZone } from './providers/types.js'
+import { normalizeDomain, normalizeSubdomain } from './validate.js'
 
 export interface FindDomainProviderInput {
   account?: string
@@ -95,10 +95,10 @@ function resolveRequestedDomain(opts: ResolveProviderTargetInput): RequestedDoma
   }
 
   const domain = normalizeDomain(opts.domain)
-  if (opts.apex) return {forceExactZone: true, fullDomain: domain}
-  if (!opts.subdomain) return {forceExactZone: false, fullDomain: domain}
+  if (opts.apex) return { forceExactZone: true, fullDomain: domain }
+  if (!opts.subdomain) return { forceExactZone: false, fullDomain: domain }
 
-  return {forceExactZone: false, fullDomain: `${normalizeSubdomain(opts.subdomain)}.${domain}`}
+  return { forceExactZone: false, fullDomain: `${normalizeSubdomain(opts.subdomain)}.${domain}` }
 }
 
 function zoneMatchesDomain(fullDomain: string, zoneDomain: string, forceExactZone: boolean): boolean {
@@ -109,7 +109,7 @@ function zoneMatchesDomain(fullDomain: string, zoneDomain: string, forceExactZon
 
 function targetFromZone(fullDomain: string, zoneDomain: string): ResolvedDnsTarget['target'] {
   if (fullDomain === zoneDomain) {
-    return {fullDomain, isApex: true, recordName: '@', zoneDomain}
+    return { fullDomain, isApex: true, recordName: '@', zoneDomain }
   }
 
   return {
@@ -131,26 +131,29 @@ function candidateDetails(candidates: ProviderZoneCandidate[]) {
 }
 
 function defaultAccountRef(providerId: string): ProviderAccountRef {
-  return {account: DEFAULT_PROVIDER_ACCOUNT, isDefaultAccount: true, providerId}
+  return { account: DEFAULT_PROVIDER_ACCOUNT, isDefaultAccount: true, providerId }
 }
 
 function explicitAccountRef(providerId: string, account: string): ProviderAccountRef {
   const normalized = normalizeProviderAccount(account)
-  return {account: normalized, isDefaultAccount: isDefaultProviderAccount(normalized), providerId}
+  return { account: normalized, isDefaultAccount: isDefaultProviderAccount(normalized), providerId }
 }
 
 function searchError(error: unknown): ProviderSearchWarning['error'] {
   return {
-    ...(error instanceof DoomainError ? {code: error.code} : {}),
+    ...(error instanceof DoomainError ? { code: error.code } : {}),
     message: error instanceof Error ? error.message : String(error),
   }
 }
 
-async function loadProviderZones(definition: DnsProviderDefinition, account: ProviderAccountRef): Promise<{
+async function loadProviderZones(
+  definition: DnsProviderDefinition,
+  account: ProviderAccountRef,
+): Promise<{
   candidates: ProviderZoneCandidate[]
   search: ProviderZoneSearchResult
 }> {
-  const provider = await createProvider(definition.id, {account: account.account})
+  const provider = await createProvider(definition.id, { account: account.account })
   const zones = await provider.listZones()
   return {
     candidates: zones.map((zone) => ({
@@ -189,7 +192,7 @@ async function loadProviderZonesSafely(definition: DnsProviderDefinition, accoun
 }
 
 async function providerConnectionDetails() {
-  return (await listProviderStatuses({verify: false})).map((provider) => ({
+  return (await listProviderStatuses({ verify: false })).map((provider) => ({
     configured: provider.configured,
     account: provider.account,
     default: provider.default,
@@ -216,7 +219,11 @@ function searchWarnings(searches: ProviderZoneSearchResult[]): ProviderSearchWar
   )
 }
 
-async function loadConfiguredProviderZones(providerId?: string, accountInput?: string, tolerateProviderAccountErrors = false): Promise<{
+async function loadConfiguredProviderZones(
+  providerId?: string,
+  accountInput?: string,
+  tolerateProviderAccountErrors = false,
+): Promise<{
   candidates: ProviderZoneCandidate[]
   accountInferred: boolean
   providerInferred: boolean
@@ -227,7 +234,9 @@ async function loadConfiguredProviderZones(providerId?: string, accountInput?: s
 
   if (providerId) {
     const definition = getProviderDefinition(providerId)
-    const accounts = account ? [explicitAccountRef(definition.id, account)] : listConfiguredProviderAccounts(config, definition)
+    const accounts = account
+      ? [explicitAccountRef(definition.id, account)]
+      : listConfiguredProviderAccounts(config, definition)
     const selectedAccounts = accounts.length > 0 ? accounts : [defaultAccountRef(definition.id)]
     const tolerateAccountErrors = tolerateProviderAccountErrors && !account && selectedAccounts.length > 1
     const results = await Promise.all(
@@ -246,7 +255,7 @@ async function loadConfiguredProviderZones(providerId?: string, accountInput?: s
   const providerAccounts = listProviderDefinitions().flatMap((definition) =>
     listConfiguredProviderAccounts(config, definition)
       .filter((ref) => !account || ref.account === account)
-      .map((ref) => ({definition, ref})),
+      .map((ref) => ({ definition, ref })),
   )
 
   if (providerAccounts.length === 0) {
@@ -263,7 +272,9 @@ async function loadConfiguredProviderZones(providerId?: string, accountInput?: s
     })
   }
 
-  const results = await Promise.all(providerAccounts.map(({definition, ref}) => loadProviderZonesSafely(definition, ref)))
+  const results = await Promise.all(
+    providerAccounts.map(({ definition, ref }) => loadProviderZonesSafely(definition, ref)),
+  )
 
   return {
     accountInferred: account === undefined,
@@ -295,7 +306,10 @@ export async function resolveProviderTarget(
       recovery:
         'Retry with --provider <id> --account <alias> only if another configured provider account owns this zone. Otherwise connect the DNS provider account that owns this domain.',
       searchedZones: zones.searched,
-      suggestedCommands: [`doomain link ${requested.fullDomain} --provider <id> --account <alias> --json`, 'doomain providers connect'],
+      suggestedCommands: [
+        `doomain link ${requested.fullDomain} --provider <id> --account <alias> --json`,
+        'doomain providers connect',
+      ],
     })
   }
 
@@ -304,7 +318,10 @@ export async function resolveProviderTarget(
   const uniqueBestMatches = bestMatches.filter(
     (candidate, index, candidates) =>
       candidates.findIndex(
-        (item) => item.provider === candidate.provider && item.account === candidate.account && item.zone.name === candidate.zone.name,
+        (item) =>
+          item.provider === candidate.provider &&
+          item.account === candidate.account &&
+          item.zone.name === candidate.zone.name,
       ) === index,
   )
 
@@ -312,7 +329,7 @@ export async function resolveProviderTarget(
     throw new DoomainError(
       'PROVIDER_ZONE_AMBIGUOUS',
       `Multiple DNS provider accounts have a matching DNS zone for ${requested.fullDomain}. Pass --provider and --account to choose one.`,
-      {candidates: candidateDetails(uniqueBestMatches), domain: requested.fullDomain},
+      { candidates: candidateDetails(uniqueBestMatches), domain: requested.fullDomain },
     )
   }
 
@@ -342,7 +359,7 @@ function discoveryError(error: DoomainError, domain: string): DoomainError {
 /** Find the configured DNS provider account with the longest zone match for a domain. */
 export async function findDomainProvider(input: FindDomainProviderInput): Promise<DomainProviderResult> {
   try {
-    const resolved = await resolveProviderTarget(input, {tolerateProviderAccountErrors: true})
+    const resolved = await resolveProviderTarget(input, { tolerateProviderAccountErrors: true })
 
     return {
       account: resolved.account,

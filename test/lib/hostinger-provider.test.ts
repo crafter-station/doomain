@@ -1,14 +1,14 @@
-import {expect} from 'chai'
+import { expect } from 'chai'
 
-import {createProvider} from '../../src/lib/providers/registry.js'
+import { createProvider } from '../../src/lib/providers/registry.js'
 
 function jsonResponse(body: unknown): Response {
-  return {json: async () => body, ok: true, status: 200} as Response
+  return { json: async () => body, ok: true, status: 200 } as Response
 }
 
 describe('hostinger provider', () => {
   const originalFetch = globalThis.fetch
-  const env = {...process.env}
+  const env = { ...process.env }
 
   beforeEach(() => {
     process.env.HOSTINGER_API_TOKEN = 'hostinger_token'
@@ -16,7 +16,7 @@ describe('hostinger provider', () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch
-    process.env = {...env}
+    process.env = { ...env }
   })
 
   it('lists Hostinger domains from the portfolio API', async () => {
@@ -25,9 +25,9 @@ describe('hostinger provider', () => {
       const headers = new Headers(init?.headers)
       authorizations.push(headers.get('authorization'))
       return jsonResponse([
-        {domain: 'Example.COM', id: 1, status: 'active'},
-        {domain: 'pending.com', id: 2, status: 'pending_setup'},
-        {domain: null, id: 3, status: 'pending_setup'},
+        { domain: 'Example.COM', id: 1, status: 'active' },
+        { domain: 'pending.com', id: 2, status: 'pending_setup' },
+        { domain: null, id: 3, status: 'pending_setup' },
       ])
     }) as typeof fetch
 
@@ -35,29 +35,37 @@ describe('hostinger provider', () => {
     const zones = await provider.listZones()
 
     expect(authorizations).to.deep.equal(['Bearer hostinger_token'])
-    expect(zones).to.deep.equal([{id: 'example.com', metadata: {hostinger: {domain: 'Example.COM', id: 1, status: 'active'}}, name: 'example.com'}])
+    expect(zones).to.deep.equal([
+      {
+        id: 'example.com',
+        metadata: { hostinger: { domain: 'Example.COM', id: 1, status: 'active' } },
+        name: 'example.com',
+      },
+    ])
   })
 
   it('lists DNS records from grouped Hostinger zone records', async () => {
     globalThis.fetch = (async () =>
       jsonResponse([
-        {name: '@', records: [{content: '76.76.21.21', is_disabled: false}], ttl: 14_400, type: 'A'},
-        {name: 'app', records: [{content: 'cname.vercel-dns.com', is_disabled: false}], ttl: 3600, type: 'CNAME'},
+        { name: '@', records: [{ content: '76.76.21.21', is_disabled: false }], ttl: 14_400, type: 'A' },
+        { name: 'app', records: [{ content: 'cname.vercel-dns.com', is_disabled: false }], ttl: 3600, type: 'CNAME' },
         {
           name: 'example.com.',
-          records: [{content: 'vc-domain-verify=example.com,abc'}, {content: 'disabled-record', is_disabled: true}],
+          records: [{ content: 'vc-domain-verify=example.com,abc' }, { content: 'disabled-record', is_disabled: true }],
           ttl: 3600,
           type: 'TXT',
         },
-        {name: 'alias', records: [{content: 'unsupported.example.com'}], ttl: 3600, type: 'ALIAS'},
+        { name: 'alias', records: [{ content: 'unsupported.example.com' }], ttl: 3600, type: 'ALIAS' },
       ])) as typeof fetch
 
     const provider = await createProvider('hostinger')
-    const records = await provider.listRecords({id: 'example.com', name: 'example.com'})
+    const records = await provider.listRecords({ id: 'example.com', name: 'example.com' })
 
     expect(records).to.deep.equal([
       {
-        metadata: {hostinger: {name: '@', records: [{content: '76.76.21.21', is_disabled: false}], ttl: 14_400, type: 'A'}},
+        metadata: {
+          hostinger: { name: '@', records: [{ content: '76.76.21.21', is_disabled: false }], ttl: 14_400, type: 'A' },
+        },
         name: '@',
         ttl: 14_400,
         type: 'A',
@@ -65,7 +73,12 @@ describe('hostinger provider', () => {
       },
       {
         metadata: {
-          hostinger: {name: 'app', records: [{content: 'cname.vercel-dns.com', is_disabled: false}], ttl: 3600, type: 'CNAME'},
+          hostinger: {
+            name: 'app',
+            records: [{ content: 'cname.vercel-dns.com', is_disabled: false }],
+            ttl: 3600,
+            type: 'CNAME',
+          },
         },
         name: 'app',
         ttl: 3600,
@@ -74,7 +87,12 @@ describe('hostinger provider', () => {
       },
       {
         metadata: {
-          hostinger: {name: 'example.com.', records: [{content: 'vc-domain-verify=example.com,abc'}], ttl: 3600, type: 'TXT'},
+          hostinger: {
+            name: 'example.com.',
+            records: [{ content: 'vc-domain-verify=example.com,abc' }],
+            ttl: 3600,
+            type: 'TXT',
+          },
         },
         name: '@',
         ttl: 3600,
@@ -85,67 +103,77 @@ describe('hostinger provider', () => {
   })
 
   it('creates DNS records without overwriting existing Hostinger values', async () => {
-    const requests: Array<{init?: RequestInit; input: RequestInfo | URL}> = []
+    const requests: Array<{ init?: RequestInit; input: RequestInfo | URL }> = []
     globalThis.fetch = (async (input, init) => {
-      requests.push({init, input})
+      requests.push({ init, input })
       return jsonResponse([])
     }) as typeof fetch
 
     const provider = await createProvider('hostinger')
-    const zone = {id: 'example.com', name: 'example.com'}
-    const plan = await provider.planChanges(zone, [{name: 'app', ttl: 3600, type: 'CNAME', value: 'cname.vercel-dns.com'}])
+    const zone = { id: 'example.com', name: 'example.com' }
+    const plan = await provider.planChanges(zone, [
+      { name: 'app', ttl: 3600, type: 'CNAME', value: 'cname.vercel-dns.com' },
+    ])
     await provider.applyChanges(zone, plan)
 
     const updateRequest = requests.find((request) => request.init?.method === 'PUT')!
     expect(String(updateRequest.input)).to.equal('https://developers.hostinger.com/api/dns/v1/zones/example.com')
     expect(JSON.parse(String(updateRequest.init?.body))).to.deep.equal({
       overwrite: false,
-      zone: [{name: 'app', records: [{content: 'cname.vercel-dns.com'}], ttl: 3600, type: 'CNAME'}],
+      zone: [{ name: 'app', records: [{ content: 'cname.vercel-dns.com' }], ttl: 3600, type: 'CNAME' }],
     })
   })
 
   it('overwrites matching Hostinger record sets for forced updates', async () => {
-    const requests: Array<{init?: RequestInit; input: RequestInfo | URL}> = []
+    const requests: Array<{ init?: RequestInit; input: RequestInfo | URL }> = []
     globalThis.fetch = (async (input, init) => {
-      requests.push({init, input})
+      requests.push({ init, input })
       const method = init?.method ?? 'GET'
-      return jsonResponse(method === 'GET' ? [{name: 'app', records: [{content: 'old.example.com'}], ttl: 3600, type: 'CNAME'}] : {message: 'Request accepted'})
+      return jsonResponse(
+        method === 'GET'
+          ? [{ name: 'app', records: [{ content: 'old.example.com' }], ttl: 3600, type: 'CNAME' }]
+          : { message: 'Request accepted' },
+      )
     }) as typeof fetch
 
     const provider = await createProvider('hostinger')
-    const zone = {id: 'example.com', name: 'example.com'}
-    const plan = await provider.planChanges(zone, [{name: 'app', ttl: 3600, type: 'CNAME', value: 'cname.vercel-dns.com'}], {force: true})
+    const zone = { id: 'example.com', name: 'example.com' }
+    const plan = await provider.planChanges(
+      zone,
+      [{ name: 'app', ttl: 3600, type: 'CNAME', value: 'cname.vercel-dns.com' }],
+      { force: true },
+    )
     await provider.applyChanges(zone, plan)
 
     const updateRequest = requests.find((request) => request.init?.method === 'PUT')!
     expect(JSON.parse(String(updateRequest.init?.body))).to.deep.equal({
       overwrite: true,
-      zone: [{name: 'app', records: [{content: 'cname.vercel-dns.com'}], ttl: 3600, type: 'CNAME'}],
+      zone: [{ name: 'app', records: [{ content: 'cname.vercel-dns.com' }], ttl: 3600, type: 'CNAME' }],
     })
   })
 
   it('replaces a multi-value Hostinger record set without deleting the replacement', async () => {
-    const requests: Array<{init?: RequestInit; input: RequestInfo | URL}> = []
+    const requests: Array<{ init?: RequestInit; input: RequestInfo | URL }> = []
     globalThis.fetch = (async (input, init) => {
-      requests.push({init, input})
+      requests.push({ init, input })
       const method = init?.method ?? 'GET'
       return jsonResponse(
         method === 'GET'
           ? [
               {
                 name: 'app',
-                records: [{content: '192.0.2.1'}, {content: '192.0.2.2'}],
+                records: [{ content: '192.0.2.1' }, { content: '192.0.2.2' }],
                 ttl: 3600,
                 type: 'A',
               },
             ]
-          : {message: 'Request accepted'},
+          : { message: 'Request accepted' },
       )
     }) as typeof fetch
 
     const provider = await createProvider('hostinger')
-    const zone = {id: 'example.com', name: 'example.com'}
-    const plan = await provider.planChanges(zone, [{name: 'app', ttl: 300, type: 'A', value: '203.0.113.10'}], {
+    const zone = { id: 'example.com', name: 'example.com' }
+    const plan = await provider.planChanges(zone, [{ name: 'app', ttl: 300, type: 'A', value: '203.0.113.10' }], {
       force: true,
     })
     await provider.applyChanges(zone, plan)
@@ -155,33 +183,33 @@ describe('hostinger provider', () => {
     expect(updateRequests).to.have.length(1)
     expect(JSON.parse(String(updateRequests[0].init?.body))).to.deep.equal({
       overwrite: true,
-      zone: [{name: 'app', records: [{content: '203.0.113.10'}], ttl: 300, type: 'A'}],
+      zone: [{ name: 'app', records: [{ content: '203.0.113.10' }], ttl: 300, type: 'A' }],
     })
   })
 
   it('removes stale Hostinger values while preserving an exact desired value', async () => {
-    const requests: Array<{init?: RequestInit; input: RequestInfo | URL}> = []
+    const requests: Array<{ init?: RequestInit; input: RequestInfo | URL }> = []
     globalThis.fetch = (async (input, init) => {
-      requests.push({init, input})
+      requests.push({ init, input })
       const method = init?.method ?? 'GET'
       return jsonResponse(
         method === 'GET'
           ? [
               {
                 name: 'app',
-                records: [{content: '203.0.113.10'}, {content: '192.0.2.1'}],
+                records: [{ content: '203.0.113.10' }, { content: '192.0.2.1' }],
                 ttl: 300,
                 type: 'A',
               },
             ]
-          : {message: 'Request accepted'},
+          : { message: 'Request accepted' },
       )
     }) as typeof fetch
 
     const provider = await createProvider('hostinger')
-    const zone = {id: 'example.com', name: 'example.com'}
-    const desired = {name: 'app', ttl: 300, type: 'A' as const, value: '203.0.113.10'}
-    const plan = await provider.planChanges(zone, [desired], {force: true})
+    const zone = { id: 'example.com', name: 'example.com' }
+    const desired = { name: 'app', ttl: 300, type: 'A' as const, value: '203.0.113.10' }
+    const plan = await provider.planChanges(zone, [desired], { force: true })
     await provider.applyChanges(zone, plan)
 
     expect(requests.filter((request) => request.init?.method === 'DELETE')).to.deep.equal([])
@@ -189,22 +217,25 @@ describe('hostinger provider', () => {
     expect(updateRequests).to.have.length(1)
     expect(JSON.parse(String(updateRequests[0].init?.body))).to.deep.equal({
       overwrite: true,
-      zone: [{name: 'app', records: [{content: '203.0.113.10'}], ttl: 300, type: 'A'}],
+      zone: [{ name: 'app', records: [{ content: '203.0.113.10' }], ttl: 300, type: 'A' }],
     })
   })
 
   it('deletes Hostinger records by name and type filter', async () => {
-    const requests: Array<{init?: RequestInit; input: RequestInfo | URL}> = []
+    const requests: Array<{ init?: RequestInit; input: RequestInfo | URL }> = []
     globalThis.fetch = (async (input, init) => {
-      requests.push({init, input})
-      return jsonResponse({message: 'Request accepted'})
+      requests.push({ init, input })
+      return jsonResponse({ message: 'Request accepted' })
     }) as typeof fetch
 
     const provider = await createProvider('hostinger')
-    await provider.deleteRecord({id: 'example.com', name: 'example.com'}, {name: 'app', type: 'CNAME', value: 'old.example.com'})
+    await provider.deleteRecord(
+      { id: 'example.com', name: 'example.com' },
+      { name: 'app', type: 'CNAME', value: 'old.example.com' },
+    )
 
     expect(String(requests[0].input)).to.equal('https://developers.hostinger.com/api/dns/v1/zones/example.com')
     expect(requests[0].init?.method).to.equal('DELETE')
-    expect(JSON.parse(String(requests[0].init?.body))).to.deep.equal({filters: [{name: 'app', type: 'CNAME'}]})
+    expect(JSON.parse(String(requests[0].init?.body))).to.deep.equal({ filters: [{ name: 'app', type: 'CNAME' }] })
   })
 })

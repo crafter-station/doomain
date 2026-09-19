@@ -97,7 +97,7 @@ describe('point domain', () => {
 
     await assert.rejects(
       pointDomain(
-        {domain: 'app.example.com', dryRun: true, target: '203.0.113.10', ttl: 30},
+        { domain: 'app.example.com', dryRun: true, target: '203.0.113.10', ttl: 30 },
         {
           createProvider: async () => provider,
           resolveTarget: async () => ({
@@ -106,7 +106,7 @@ describe('point domain', () => {
             isDefaultAccount: true,
             provider: 'test',
             providerInferred: true,
-            target: {fullDomain: 'app.example.com', isApex: false, recordName: 'app', zoneDomain: 'example.com'},
+            target: { fullDomain: 'app.example.com', isApex: false, recordName: 'app', zoneDomain: 'example.com' },
             warnings: [],
           }),
         },

@@ -1,4 +1,4 @@
-import {ProviderError, providerCodeFromStatus} from './errors.js'
+import { ProviderError, providerCodeFromStatus } from './errors.js'
 
 export interface ProviderHttpClientOptions {
   baseUrl: string
@@ -29,7 +29,7 @@ export class ProviderHttpClient {
   constructor(private readonly opts: ProviderHttpClientOptions) {}
 
   async request<T>(path: string, init: ProviderRequestOptions = {}): Promise<T> {
-    const {body, headers, query, ...rest} = init
+    const { body, headers, query, ...rest } = init
     const response = await fetch(`${this.opts.baseUrl}${appendQuery(path, query)}`, {
       ...rest,
       body: body === undefined ? undefined : JSON.stringify(body),

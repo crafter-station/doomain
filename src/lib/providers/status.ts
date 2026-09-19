@@ -1,12 +1,12 @@
-import {loadConfig, type DoomainConfig} from '../config.js'
+import { type DoomainConfig, loadConfig } from '../config.js'
 import {
   DEFAULT_PROVIDER_ACCOUNT,
   isProviderAccountConfigured,
   listConfiguredProviderAccounts,
   normalizeProviderAccount,
 } from './core/config.js'
-import {createProvider, listProviderDefinitions} from './registry.js'
-import type {DnsProviderDefinition} from './types.js'
+import { createProvider, listProviderDefinitions } from './registry.js'
+import type { DnsProviderDefinition } from './types.js'
 
 export interface ProviderStatus {
   account: string
@@ -21,18 +21,24 @@ export interface ProviderStatus {
   verified?: boolean
 }
 
-export function isProviderConfigured(definition: DnsProviderDefinition, config: DoomainConfig, opts: {account?: string} = {}): boolean {
+export function isProviderConfigured(
+  definition: DnsProviderDefinition,
+  config: DoomainConfig,
+  opts: { account?: string } = {},
+): boolean {
   return isProviderAccountConfigured(definition, config, opts)
 }
 
-export async function listProviderStatuses(opts: {verify?: boolean} = {}): Promise<ProviderStatus[]> {
+export async function listProviderStatuses(opts: { verify?: boolean } = {}): Promise<ProviderStatus[]> {
   const config = await loadConfig()
   const statuses: ProviderStatus[] = []
 
   for (const definition of listProviderDefinitions()) {
     const accounts = listConfiguredProviderAccounts(config, definition)
     const refs =
-      accounts.length > 0 ? accounts : [{account: DEFAULT_PROVIDER_ACCOUNT, isDefaultAccount: true, providerId: definition.id}]
+      accounts.length > 0
+        ? accounts
+        : [{ account: DEFAULT_PROVIDER_ACCOUNT, isDefaultAccount: true, providerId: definition.id }]
 
     for (const ref of refs) {
       const account = normalizeProviderAccount(ref.account)
@@ -49,7 +55,7 @@ export async function listProviderStatuses(opts: {verify?: boolean} = {}): Promi
 
       if (configured && opts.verify) {
         try {
-          const zones = await (await createProvider(definition.id, {account})).listZones()
+          const zones = await (await createProvider(definition.id, { account })).listZones()
           status.domainCount = zones.length
           status.verified = true
         } catch (error) {

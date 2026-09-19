@@ -1,5 +1,5 @@
-import {existsSync, readFileSync} from 'node:fs'
-import {dirname, join, parse} from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join, parse } from 'node:path'
 
 export interface LocalVercelProject {
   projectId: string

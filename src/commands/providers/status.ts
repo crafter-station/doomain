@@ -1,8 +1,8 @@
-import {Command, Flags} from '@oclif/core'
+import { Command, Flags } from '@oclif/core'
 
-import {jsonFlag} from '../../lib/flags.js'
-import {createOutput} from '../../lib/output.js'
-import {listProviderStatuses, type ProviderStatus} from '../../lib/providers/status.js'
+import { jsonFlag } from '../../lib/flags.js'
+import { createOutput } from '../../lib/output.js'
+import { listProviderStatuses, type ProviderStatus } from '../../lib/providers/status.js'
 
 function formatStatus(provider: ProviderStatus): string {
   if (!provider.configured) return 'not connected'
@@ -16,23 +16,25 @@ export default class ProvidersStatus extends Command {
 
   static flags = {
     json: jsonFlag,
-    'no-verify': Flags.boolean({description: 'Skip provider API calls and only show local configuration status.'}),
+    'no-verify': Flags.boolean({ description: 'Skip provider API calls and only show local configuration status.' }),
   }
 
   async run(): Promise<void> {
-    const {flags} = await this.parse(ProvidersStatus)
-    const out = createOutput({json: flags.json})
+    const { flags } = await this.parse(ProvidersStatus)
+    const out = createOutput({ json: flags.json })
     const spinner = out.json || flags['no-verify'] ? undefined : out.spinner()
 
     spinner?.start('Checking DNS providers')
-    const providers = await listProviderStatuses({verify: !flags['no-verify']})
+    const providers = await listProviderStatuses({ verify: !flags['no-verify'] })
     spinner?.stop('Checked DNS providers')
 
     for (const provider of providers) {
       const account = provider.isDefaultAccount ? provider.id : `${provider.id}/${provider.account}`
-      out.info(`${provider.displayName} (${account}) - ${formatStatus(provider)}${provider.default ? ' [default]' : ''}`)
+      out.info(
+        `${provider.displayName} (${account}) - ${formatStatus(provider)}${provider.default ? ' [default]' : ''}`,
+      )
     }
 
-    out.result({providers})
+    out.result({ providers })
   }
 }

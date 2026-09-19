@@ -1,12 +1,12 @@
-import {Args, Command, Flags} from '@oclif/core'
 import * as p from '@clack/prompts'
+import { Args, Command, Flags } from '@oclif/core'
 
-import {addClerkProductionDomain, type AddClerkDomainResult} from '../../../lib/clerk-domain.js'
-import type {DnsOverrideWarning} from '../../../lib/link-domain.js'
-import {accountFlag, jsonFlag, providerFlag} from '../../../lib/flags.js'
-import {createOutput, outputError} from '../../../lib/output.js'
+import { type AddClerkDomainResult, addClerkProductionDomain } from '../../../lib/clerk-domain.js'
+import { accountFlag, jsonFlag, providerFlag } from '../../../lib/flags.js'
+import type { DnsOverrideWarning } from '../../../lib/link-domain.js'
+import { createOutput, outputError } from '../../../lib/output.js'
 
-function recordLine(record: {name: string; proxied?: boolean; type: string; value: string}): string {
+function recordLine(record: { name: string; proxied?: boolean; type: string; value: string }): string {
   return `${record.type} ${record.name} -> ${record.value}${record.proxied === undefined ? '' : ` (proxied ${record.proxied})`}`
 }
 
@@ -35,23 +35,29 @@ export default class ClerkDomainsAdd extends Command {
   ]
 
   static args = {
-    domain: Args.string({description: 'Production primary domain, for example example.com.', required: true}),
+    domain: Args.string({ description: 'Production primary domain, for example example.com.', required: true }),
   }
 
   static flags = {
     account: accountFlag,
-    app: Flags.string({description: 'Clerk application id. Defaults to CLERK_APPLICATION_ID or saved Clerk config.'}),
-    'dry-run': Flags.boolean({description: 'Check the Clerk application and DNS zone without creating the production instance.'}),
-    force: Flags.boolean({description: 'Overwrite DNS records that conflict with Clerk requirements.'}),
+    app: Flags.string({ description: 'Clerk application id. Defaults to CLERK_APPLICATION_ID or saved Clerk config.' }),
+    'dry-run': Flags.boolean({
+      description: 'Check the Clerk application and DNS zone without creating the production instance.',
+    }),
+    force: Flags.boolean({ description: 'Overwrite DNS records that conflict with Clerk requirements.' }),
     json: jsonFlag,
     provider: providerFlag,
-    timeout: Flags.integer({default: 300, description: 'Wait timeout in seconds.'}),
-    wait: Flags.boolean({allowNo: true, default: true, description: 'Wait for Clerk DNS, SSL, and email DNS verification.'}),
+    timeout: Flags.integer({ default: 300, description: 'Wait timeout in seconds.' }),
+    wait: Flags.boolean({
+      allowNo: true,
+      default: true,
+      description: 'Wait for Clerk DNS, SSL, and email DNS verification.',
+    }),
   }
 
   async run(): Promise<void> {
-    const {args, flags} = await this.parse(ClerkDomainsAdd)
-    const out = createOutput({json: flags.json})
+    const { args, flags } = await this.parse(ClerkDomainsAdd)
+    const out = createOutput({ json: flags.json })
     let spinner: ReturnType<typeof out.spinner> | undefined
 
     try {
@@ -60,7 +66,7 @@ export default class ClerkDomainsAdd extends Command {
           `This creates the first production instance for Clerk application ${flags.app ?? 'the configured app'} and sets ${args.domain} as its primary domain. Existing production instances are never modified.`,
           'Clerk production setup',
         )
-        const confirmed = await p.confirm({message: 'Create the Clerk production instance?', initialValue: false})
+        const confirmed = await p.confirm({ message: 'Create the Clerk production instance?', initialValue: false })
         if (confirmed !== true) {
           p.cancel('Cancelled')
           return
@@ -77,7 +83,7 @@ export default class ClerkDomainsAdd extends Command {
           : async (warning) => {
               spinner?.stop('DNS conflict found')
               p.note(conflictNote(warning), 'DNS records point elsewhere')
-              const confirmed = await p.confirm({message: 'Overwrite these DNS records?', initialValue: false})
+              const confirmed = await p.confirm({ message: 'Overwrite these DNS records?', initialValue: false })
               if (confirmed === true) spinner?.start('Continuing Clerk production setup')
               return confirmed === true
             },

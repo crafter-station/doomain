@@ -1,6 +1,6 @@
-import {normalizeDomain} from '../../validate.js'
-import {createProviderHttpClient, type ProviderHttpClient} from '../core/http.js'
-import {assertNoConflicts, planDnsChanges} from '../core/planner.js'
+import { normalizeDomain } from '../../validate.js'
+import { createProviderHttpClient, type ProviderHttpClient } from '../core/http.js'
+import { assertNoConflicts, planDnsChanges } from '../core/planner.js'
 import type {
   DnsChange,
   DnsChangePlan,
@@ -63,7 +63,7 @@ function toZone(domain: HostingerDomain): DnsZone | null {
 
   try {
     const name = normalizeDomain(domain.domain)
-    return {id: name, metadata: {hostinger: domain}, name}
+    return { id: name, metadata: { hostinger: domain }, name }
   } catch {
     return null
   }
@@ -80,7 +80,7 @@ function toDnsRecords(record: HostingerZoneRecord, zone: DnsZone): DnsRecord[] {
 
     return [
       {
-        metadata: {hostinger: {...record, records: [item]}},
+        metadata: { hostinger: { ...record, records: [item] } },
         name,
         ttl: record.ttl,
         type,
@@ -93,14 +93,14 @@ function toDnsRecords(record: HostingerZoneRecord, zone: DnsZone): DnsRecord[] {
 function toHostingerRecord(record: DnsRecordInput): HostingerZoneRecord {
   return {
     name: record.name,
-    records: [{content: record.value}],
+    records: [{ content: record.value }],
     ttl: record.ttl ?? capabilities.defaultTtl,
     type: record.type,
   }
 }
 
 function deleteFilter(record: DnsRecord) {
-  return {name: record.name, type: record.type}
+  return { name: record.name, type: record.type }
 }
 
 function sameRecordSet(record: Pick<DnsRecordInput, 'name' | 'type'>, desired: DnsRecordInput): boolean {
@@ -125,10 +125,10 @@ function collapseRecordSetWrites(plan: DnsChangePlan): DnsChangePlan {
       if (change.action === 'delete') return !sameRecordSet(change.existing, desired)
       return !sameRecordSet(change.record, desired)
     })
-    changes.push({action: 'update', existing: existing[0], record: desired})
+    changes.push({ action: 'update', existing: existing[0], record: desired })
   }
 
-  return {...plan, changes}
+  return { ...plan, changes }
 }
 
 export class HostingerProvider implements DnsProvider {
@@ -146,7 +146,7 @@ export class HostingerProvider implements DnsProvider {
         422: 'Hostinger rejected the DNS record payload.',
         429: 'Hostinger rate limit exceeded. Try again later.',
       },
-      headers: {Authorization: `Bearer ${context.credentials.apiToken}`},
+      headers: { Authorization: `Bearer ${context.credentials.apiToken}` },
       providerId: this.id,
       signal: context.signal,
     })
@@ -154,7 +154,7 @@ export class HostingerProvider implements DnsProvider {
 
   async verifyCredentials(): Promise<ProviderHealth> {
     await this.listZones()
-    return {ok: true}
+    return { ok: true }
   }
 
   async listZones(): Promise<DnsZone[]> {
@@ -176,12 +176,18 @@ export class HostingerProvider implements DnsProvider {
     return records.flatMap((record) => toDnsRecords(record, zone))
   }
 
-  async planChanges(zone: DnsZone, desired: DnsRecordInput[], opts: {force?: boolean} = {}): Promise<DnsChangePlan> {
-    const plan = planDnsChanges({desired, existing: await this.listRecords(zone), force: opts.force, providerId: this.id, zone})
+  async planChanges(zone: DnsZone, desired: DnsRecordInput[], opts: { force?: boolean } = {}): Promise<DnsChangePlan> {
+    const plan = planDnsChanges({
+      desired,
+      existing: await this.listRecords(zone),
+      force: opts.force,
+      providerId: this.id,
+      zone,
+    })
     return collapseRecordSetWrites(plan)
   }
 
-  async applyChanges(zone: DnsZone, plan: DnsChangePlan): Promise<{applied: DnsChange[]; skipped: DnsRecordInput[]}> {
+  async applyChanges(zone: DnsZone, plan: DnsChangePlan): Promise<{ applied: DnsChange[]; skipped: DnsRecordInput[] }> {
     assertNoConflicts(this.id, plan)
     const applied: DnsChange[] = []
     const skipped: DnsRecordInput[] = []
@@ -198,24 +204,24 @@ export class HostingerProvider implements DnsProvider {
       applied.push(change)
     }
 
-    return {applied, skipped}
+    return { applied, skipped }
   }
 
   async upsertRecord(zone: DnsZone, record: DnsRecordInput): Promise<DnsRecord> {
     await this.putRecords(zone, [record], true)
-    return {...record, ttl: record.ttl ?? capabilities.defaultTtl}
+    return { ...record, ttl: record.ttl ?? capabilities.defaultTtl }
   }
 
   async deleteRecord(zone: DnsZone, record: DnsRecord): Promise<void> {
     await this.http.request(`/api/dns/v1/zones/${encodeURIComponent(zone.name)}`, {
-      body: {filters: [deleteFilter(record)]},
+      body: { filters: [deleteFilter(record)] },
       method: 'DELETE',
     })
   }
 
   private async putRecords(zone: DnsZone, records: DnsRecordInput[], overwrite: boolean): Promise<void> {
     await this.http.request(`/api/dns/v1/zones/${encodeURIComponent(zone.name)}`, {
-      body: {overwrite, zone: records.map(toHostingerRecord)},
+      body: { overwrite, zone: records.map(toHostingerRecord) },
       method: 'PUT',
     })
   }
@@ -223,7 +229,7 @@ export class HostingerProvider implements DnsProvider {
 
 export const hostingerProviderDefinition: DnsProviderDefinition = {
   capabilities,
-  credentials: [{env: 'HOSTINGER_API_TOKEN', key: 'apiToken', label: 'API token', required: true, secret: true}],
+  credentials: [{ env: 'HOSTINGER_API_TOKEN', key: 'apiToken', label: 'API token', required: true, secret: true }],
   displayName: 'Hostinger',
   docsUrl: 'https://developers.hostinger.com/',
   id: 'hostinger',
