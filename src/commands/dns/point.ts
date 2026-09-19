@@ -28,6 +28,33 @@ function conflictNote(warning: DnsOverrideWarning): string {
   ].join('\n')
 }
 
+function successMessages(result: PointDomainResult, waited: boolean): {outro: string; spinner: string} {
+  if (result.propagated) {
+    return {
+      outro: result.updated
+        ? `${result.domain} now points to ${result.record.value}.`
+        : `${result.domain} already points to ${result.record.value}.`,
+      spinner: 'DNS record is live',
+    }
+  }
+
+  if (!waited) {
+    return {
+      outro: result.updated
+        ? `${result.domain} was updated; propagation was not checked.`
+        : `${result.domain} was already configured; propagation was not checked.`,
+      spinner: result.updated ? 'DNS record saved; propagation not checked' : 'DNS record already configured',
+    }
+  }
+
+  return {
+    outro: result.updated
+      ? `${result.domain} was updated; propagation is still pending.`
+      : `${result.domain} was already configured; public DNS does not match yet.`,
+    spinner: result.updated ? 'DNS record saved' : 'DNS record already configured',
+  }
+}
+
 export default class DnsPoint extends Command {
   static description = 'Point a DNS name at an IP address or canonical hostname.'
 
@@ -98,13 +125,10 @@ export default class DnsPoint extends Command {
         return
       }
 
-      spinner?.stop(result.propagated ? 'DNS record is live' : 'DNS record saved')
+      const messages = successMessages(result, flags.wait)
+      spinner?.stop(messages.spinner)
       out.result(result)
-      out.outro(
-        result.propagated
-          ? `${result.domain} now points to ${result.record.value}.`
-          : `${result.domain} was updated; propagation is still pending.`,
-      )
+      out.outro(messages.outro)
     } catch (error) {
       spinner?.error('DNS update failed')
       outputError(out.json, error, 'DNS_POINT_FAILED')

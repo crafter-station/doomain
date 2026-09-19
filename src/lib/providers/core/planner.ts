@@ -7,6 +7,8 @@ function cleanDnsValue(value: string): string {
 
 function sameRecord(a: DnsRecord | DnsRecordInput, b: DnsRecord | DnsRecordInput): boolean {
   if (b.proxied !== undefined && a.proxied !== b.proxied) return false
+  if (b.priority !== undefined && a.priority !== b.priority) return false
+  if (b.ttl !== undefined && a.ttl !== b.ttl) return false
   return a.type === b.type && a.name === b.name && cleanDnsValue(a.value) === cleanDnsValue(b.value)
 }
 
@@ -16,6 +18,14 @@ function sameDnsValue(a: DnsRecord | DnsRecordInput, b: DnsRecord | DnsRecordInp
 
 function sameSlot(a: DnsRecord | DnsRecordInput, b: DnsRecord | DnsRecordInput): boolean {
   return a.type === b.type && a.name === b.name
+}
+
+function recordOptionsDiffer(a: DnsRecord | DnsRecordInput, b: DnsRecordInput): boolean {
+  return (
+    (b.proxied !== undefined && a.proxied !== b.proxied) ||
+    (b.priority !== undefined && a.priority !== b.priority) ||
+    (b.ttl !== undefined && a.ttl !== b.ttl)
+  )
 }
 
 function cnameSlotConflict(a: DnsRecord | DnsRecordInput, b: DnsRecord | DnsRecordInput): boolean {
@@ -61,7 +71,7 @@ export function planDnsChanges(input: {
       continue
     }
 
-    if (sameValue && record.proxied !== undefined && sameValue.proxied !== record.proxied) {
+    if (sameValue && recordOptionsDiffer(sameValue, record)) {
       changes.push(
         ...sameTyped.map((existing) => ({action: 'delete' as const, existing, reason: 'same_type_record_exists'})),
         ...cnameConflicts.map((existing) => ({action: 'delete' as const, existing, reason: 'cname_slot_conflict'})),

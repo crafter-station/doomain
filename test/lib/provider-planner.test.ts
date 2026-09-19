@@ -127,6 +127,24 @@ describe('planDnsChanges', () => {
     expect(plan.changes.map((change) => change.action)).to.deep.equal(['update'])
   })
 
+  it('updates an existing value when its requested TTL differs', () => {
+    const plan = planDnsChanges({
+      desired: [{name: 'app', ttl: 300, type: 'A', value: '203.0.113.10'}],
+      existing: [{id: 'existing', name: 'app', ttl: 3600, type: 'A', value: '203.0.113.10'}],
+      providerId: 'test',
+      zone,
+    })
+
+    expect(plan.conflicts).to.deep.equal([])
+    expect(plan.changes).to.deep.equal([
+      {
+        action: 'update',
+        existing: {id: 'existing', name: 'app', ttl: 3600, type: 'A', value: '203.0.113.10'},
+        record: {name: 'app', ttl: 300, type: 'A', value: '203.0.113.10'},
+      },
+    ])
+  })
+
   it('creates additional TXT values at the same name', () => {
     const plan = planDnsChanges({
       desired: [{name: '_vercel', type: 'TXT', value: 'vc-domain-verify=onpe.example.com,new'}],

@@ -124,6 +124,75 @@ describe('hostinger provider', () => {
     })
   })
 
+  it('replaces a multi-value Hostinger record set without deleting the replacement', async () => {
+    const requests: Array<{init?: RequestInit; input: RequestInfo | URL}> = []
+    globalThis.fetch = (async (input, init) => {
+      requests.push({init, input})
+      const method = init?.method ?? 'GET'
+      return jsonResponse(
+        method === 'GET'
+          ? [
+              {
+                name: 'app',
+                records: [{content: '192.0.2.1'}, {content: '192.0.2.2'}],
+                ttl: 3600,
+                type: 'A',
+              },
+            ]
+          : {message: 'Request accepted'},
+      )
+    }) as typeof fetch
+
+    const provider = await createProvider('hostinger')
+    const zone = {id: 'example.com', name: 'example.com'}
+    const plan = await provider.planChanges(zone, [{name: 'app', ttl: 300, type: 'A', value: '203.0.113.10'}], {
+      force: true,
+    })
+    await provider.applyChanges(zone, plan)
+
+    expect(requests.filter((request) => request.init?.method === 'DELETE')).to.deep.equal([])
+    const updateRequests = requests.filter((request) => request.init?.method === 'PUT')
+    expect(updateRequests).to.have.length(1)
+    expect(JSON.parse(String(updateRequests[0].init?.body))).to.deep.equal({
+      overwrite: true,
+      zone: [{name: 'app', records: [{content: '203.0.113.10'}], ttl: 300, type: 'A'}],
+    })
+  })
+
+  it('removes stale Hostinger values while preserving an exact desired value', async () => {
+    const requests: Array<{init?: RequestInit; input: RequestInfo | URL}> = []
+    globalThis.fetch = (async (input, init) => {
+      requests.push({init, input})
+      const method = init?.method ?? 'GET'
+      return jsonResponse(
+        method === 'GET'
+          ? [
+              {
+                name: 'app',
+                records: [{content: '203.0.113.10'}, {content: '192.0.2.1'}],
+                ttl: 300,
+                type: 'A',
+              },
+            ]
+          : {message: 'Request accepted'},
+      )
+    }) as typeof fetch
+
+    const provider = await createProvider('hostinger')
+    const zone = {id: 'example.com', name: 'example.com'}
+    const desired = {name: 'app', ttl: 300, type: 'A' as const, value: '203.0.113.10'}
+    const plan = await provider.planChanges(zone, [desired], {force: true})
+    await provider.applyChanges(zone, plan)
+
+    expect(requests.filter((request) => request.init?.method === 'DELETE')).to.deep.equal([])
+    const updateRequests = requests.filter((request) => request.init?.method === 'PUT')
+    expect(updateRequests).to.have.length(1)
+    expect(JSON.parse(String(updateRequests[0].init?.body))).to.deep.equal({
+      overwrite: true,
+      zone: [{name: 'app', records: [{content: '203.0.113.10'}], ttl: 300, type: 'A'}],
+    })
+  })
+
   it('deletes Hostinger records by name and type filter', async () => {
     const requests: Array<{init?: RequestInit; input: RequestInfo | URL}> = []
     globalThis.fetch = (async (input, init) => {

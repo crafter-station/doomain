@@ -90,6 +90,34 @@ describe('point domain', () => {
     )
   })
 
+  it('rejects TTLs outside the selected provider range', async () => {
+    const provider = providerWith()
+    provider.capabilities.minTtl = 60
+    provider.capabilities.maxTtl = 86_400
+
+    await assert.rejects(
+      pointDomain(
+        {domain: 'app.example.com', dryRun: true, target: '203.0.113.10', ttl: 30},
+        {
+          createProvider: async () => provider,
+          resolveTarget: async () => ({
+            account: 'default',
+            accountInferred: true,
+            isDefaultAccount: true,
+            provider: 'test',
+            providerInferred: true,
+            target: {fullDomain: 'app.example.com', isApex: false, recordName: 'app', zoneDomain: 'example.com'},
+            warnings: [],
+          }),
+        },
+      ),
+      (error: unknown) =>
+        error instanceof DoomainError &&
+        error.code === 'INVALID_INPUT' &&
+        error.message === 'Test DNS requires a TTL between 60 and 86400 seconds.',
+    )
+  })
+
   it('previews without inspecting or writing records during a dry run', async () => {
     let applied = false
     let planned = false

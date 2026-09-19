@@ -192,6 +192,26 @@ function providerResolutionError(error: DoomainError, input: PointDomainInput): 
   })
 }
 
+function validateTtl(provider: DnsProvider, ttl: number | undefined): void {
+  if (ttl === undefined) return
+  const {maxTtl, minTtl} = provider.capabilities
+  if (!Number.isInteger(ttl) || ttl <= 0) {
+    throw new DoomainError('INVALID_INPUT', 'DNS record TTL must be a positive integer.')
+  }
+
+  if (minTtl !== undefined && maxTtl !== undefined && (ttl < minTtl || ttl > maxTtl)) {
+    throw new DoomainError('INVALID_INPUT', `${provider.name} requires a TTL between ${minTtl} and ${maxTtl} seconds.`)
+  }
+
+  if (minTtl !== undefined && ttl < minTtl) {
+    throw new DoomainError('INVALID_INPUT', `${provider.name} requires a TTL of at least ${minTtl} seconds.`)
+  }
+
+  if (maxTtl !== undefined && ttl > maxTtl) {
+    throw new DoomainError('INVALID_INPUT', `${provider.name} requires a TTL no greater than ${maxTtl} seconds.`)
+  }
+}
+
 export async function pointDomain(
   input: PointDomainInput,
   dependencies: PointDomainDependencies = defaultDependencies,
@@ -212,6 +232,7 @@ export async function pointDomain(
     ttl: input.ttl,
   })
   const provider = await dependencies.createProvider(resolved.provider, { account: resolved.account })
+  validateTtl(provider, record.ttl)
   if (!provider.capabilities.recordTypes.includes(record.type)) {
     throw new DoomainError('PROVIDER_UNSUPPORTED_RECORD', `${provider.name} does not support ${record.type} records.`)
   }
