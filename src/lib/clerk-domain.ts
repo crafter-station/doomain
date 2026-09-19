@@ -1,6 +1,7 @@
 import {createClerkPlatformClient, resolveClerkPlatformConfig, type ClerkDomainStatus} from './clerk.js'
+import {resolveProviderTarget} from './domain-provider.js'
 import {DoomainError} from './errors.js'
-import {resolveProviderTarget, withProviderRecordOptions, type DnsOverrideWarning} from './link-domain.js'
+import {withProviderRecordOptions, type DnsOverrideWarning} from './link-domain.js'
 import {createProvider} from './providers/registry.js'
 import type {DnsRecordInput} from './providers/types.js'
 import {normalizeDomain} from './validate.js'

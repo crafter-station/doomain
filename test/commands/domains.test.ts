@@ -15,6 +15,10 @@ function jsonResponse(body: unknown): Response {
   return {json: async () => body, ok: true, status: 200} as Response
 }
 
+function errorResponse(body: unknown, status: number): Response {
+  return {json: async () => body, ok: false, status} as Response
+}
+
 describe('domains', () => {
   const originalFetch = globalThis.fetch
   const env = {...process.env}
@@ -81,5 +85,89 @@ describe('domains', () => {
     expect(result.data.account).to.equal('work')
     expect(result.data.zones[0]).to.deep.include({account: 'work', isDefaultAccount: false})
     expect(result.data.zones[0].zone.name).to.equal('example.com')
+  })
+
+  it('finds the provider and account for a domain despite another provider failure', async () => {
+    process.env.CLOUDFLARE_ACCOUNT_ID = ''
+    process.env.CLOUDFLARE_API_TOKEN = ''
+    await saveConfig({
+      providers: {
+        hostinger: {credentials: {apiToken: 'expired_token'}},
+        spaceship: {accounts: {personal: {credentials: {apiKey: 'personal_key', apiSecret: 'personal_secret'}}}},
+      },
+    })
+
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input))
+
+      if (url.hostname === 'developers.hostinger.com') {
+        return errorResponse({message: 'Unauthenticated.'}, 401)
+      }
+
+      if (url.hostname === 'spaceship.dev' && url.pathname === '/api/v1/domains') {
+        return jsonResponse({items: [{name: 'hacktheandes.com'}], total: 1})
+      }
+
+      throw new Error(`Unexpected request: ${url.href}`)
+    }) as typeof fetch
+
+    const {stdout} = await runCommand('domains find api.hacktheandes.com --json')
+    const result = JSON.parse(stdout) as {
+      data: {account: string; domain: string; provider: string; recordName: string; zoneDomain: string}
+      ok: boolean
+    }
+
+    expect(result).to.deep.equal({
+      data: {
+        account: 'personal',
+        accountInferred: true,
+        complete: false,
+        domain: 'api.hacktheandes.com',
+        isApex: false,
+        isDefaultAccount: false,
+        provider: 'spaceship',
+        providerInferred: true,
+        recordName: 'api',
+        warnings: [
+          {
+            account: 'default',
+            error: {
+              code: 'PROVIDER_AUTH_FAILED',
+              message: 'Hostinger rejected the API token. Re-run `doomain providers connect hostinger` with a valid token.',
+            },
+            isDefaultAccount: true,
+            provider: 'hostinger',
+            providerName: 'Hostinger',
+          },
+        ],
+        zoneDomain: 'hacktheandes.com',
+      },
+      ok: true,
+    })
+  })
+
+  it('returns discovery-specific recovery commands when no provider is configured', async () => {
+    process.env.CLOUDFLARE_ACCOUNT_ID = ''
+    process.env.CLOUDFLARE_API_TOKEN = ''
+    process.env.HOSTINGER_API_TOKEN = ''
+    process.env.NAMECHEAP_API_KEY = ''
+    process.env.NAMECHEAP_API_USER = ''
+    process.env.NAMECHEAP_CLIENT_IP = ''
+    process.env.SPACESHIP_API_KEY = ''
+    process.env.SPACESHIP_API_SECRET = ''
+
+    const {stdout} = await runCommand('domains find example.com --json')
+    const result = JSON.parse(stdout) as {
+      error: {code: string; details: {recovery: string; suggestedCommands: string[]}}
+      ok: boolean
+    }
+
+    expect(result.ok).to.equal(false)
+    expect(result.error.code).to.equal('CONFIG_NOT_FOUND')
+    expect(result.error.details.recovery).to.include('doomain domains find example.com --json')
+    expect(result.error.details.suggestedCommands).to.deep.equal([
+      'doomain providers connect',
+      'doomain domains find example.com --json',
+    ])
   })
 })

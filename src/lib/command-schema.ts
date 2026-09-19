@@ -226,6 +226,24 @@ export const commandSchemas: CommandSchema[] = [
     ],
   },
   {
+    name: 'domains find',
+    description: 'Find the configured DNS provider and account for a domain.',
+    examples: [
+      'doomain domains find hacktheandes.com --json',
+      'doomain domains find api.example.com --json',
+      'doomain domains find --domain example.com --provider spaceship --account work --json',
+    ],
+    agentHint:
+      'Use this command when you need to identify who manages DNS for a domain. It checks all configured provider accounts, tolerates individual provider failures, and selects the longest matching DNS zone. Inspect complete and warnings before treating the result as exhaustive.',
+    safeForAgents: true,
+    flags: [
+      {name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.'},
+      {name: 'domain', type: 'string', description: 'Domain to find. May also be passed as the positional argument.'},
+      {name: 'provider', type: 'string', description: 'Limit discovery to one DNS provider id.'},
+      {name: 'account', type: 'string', description: 'Limit discovery to one DNS provider profile/account alias.'},
+    ],
+  },
+  {
     name: 'domains list',
     description: 'List DNS zones and records for a provider.',
     examples: ['doomain domains list --json', 'doomain domains list --provider cloudflare --domain example.com --json'],
