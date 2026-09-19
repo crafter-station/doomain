@@ -89,9 +89,26 @@ describe('schema', () => {
       'dns delete',
       'dns diagnose',
       'auth clerk',
+      'version',
       'update',
       'upgrade',
     ])
+  })
+
+  it('documents the version command', async () => {
+    const { stdout } = await runCommand('schema version --json')
+    const result = JSON.parse(stdout) as {
+      data: { examples: string[]; flags: unknown[]; name: string; safeForAgents: boolean }
+      ok: boolean
+    }
+
+    expect(result.ok).to.equal(true)
+    expect(result.data).to.deep.include({
+      examples: ['doomain version'],
+      flags: [],
+      name: 'version',
+      safeForAgents: true,
+    })
   })
 
   it('documents agent-safe DNS pointing and provider connection status', async () => {

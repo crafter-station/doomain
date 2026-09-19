@@ -438,7 +438,7 @@ The API checks configured provider accounts, tolerates failures from individual 
 
 ## Command Reference
 
-Run `doomain help <command>` for oclif-generated help.
+Use `doomain --help`, `doomain -h`, or `doomain help <command>` for oclif-generated help. Use `doomain --version`, `doomain -v`, or `doomain version` to print the installed version.
 
 ### `doomain`
 

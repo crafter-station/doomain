@@ -47,6 +47,12 @@
   "main": "dist/index.js",
   "type": "module",
   "oclif": {
+    "additionalHelpFlags": [
+      "-h"
+    ],
+    "additionalVersionFlags": [
+      "-v"
+    ],
     "bin": "doomain",
     "dirname": "doomain",
     "commands": "./dist/commands",
