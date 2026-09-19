@@ -285,7 +285,7 @@ describe('point domain', () => {
     }
 
     const result = await pointDomain(
-      { domain: 'example.com', force: true, target: desired.value, wait: false },
+      { domain: 'example.com', force: true, reconcileSettleSeconds: 0, target: desired.value, wait: false },
       {
         createProvider: async () => provider,
         resolveTarget: async () => ({

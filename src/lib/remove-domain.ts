@@ -131,7 +131,6 @@ export async function removeDomain(
   }
   await provider.applyChanges(zone, plan, { force: true })
   const reconciliation = await reconcileRecordRemoval({
-    plannedRecords: matched,
     progress: input.progress,
     provider,
     selector,

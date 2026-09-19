@@ -112,17 +112,16 @@ const defaultDependencies: DiagnoseDnsDependencies = {
 }
 
 function recordConflicts(records: DnsRecord[]): DnsRecordConflict[] {
-  const addressRecords = records.filter((record) => ['A', 'AAAA', 'CNAME'].includes(record.type))
   const conflicts: DnsRecordConflict[] = []
   for (const type of ['A', 'AAAA', 'CNAME'] as const) {
-    const typed = addressRecords.filter((record) => record.type === type)
+    const typed = records.filter((record) => record.type === type)
     const values = new Set(typed.map((record) => normalizeDnsValue(record.value)))
     if (values.size > 1) conflicts.push({ reason: 'multiple_values', records: typed, type })
   }
-  const cnames = addressRecords.filter((record) => record.type === 'CNAME')
-  const addresses = addressRecords.filter((record) => record.type === 'A' || record.type === 'AAAA')
-  if (cnames.length > 0 && addresses.length > 0) {
-    conflicts.push({ reason: 'cname_slot_conflict', records: [...cnames, ...addresses] })
+  const cnames = records.filter((record) => record.type === 'CNAME')
+  const otherRecords = records.filter((record) => record.type !== 'CNAME')
+  if (cnames.length > 0 && otherRecords.length > 0) {
+    conflicts.push({ reason: 'cname_slot_conflict', records: [...cnames, ...otherRecords] })
   }
   return conflicts
 }

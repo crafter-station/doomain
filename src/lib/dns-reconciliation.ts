@@ -1,6 +1,6 @@
 import { type DnsRecordSelector, desiredSlotPostcondition, recordMatchesSelector } from './dns-records.js'
 import { DoomainError } from './errors.js'
-import type { DnsChangePlan, DnsProvider, DnsRecord, DnsRecordInput, DnsZone } from './providers/types.js'
+import type { DnsProvider, DnsRecord, DnsRecordInput, DnsZone } from './providers/types.js'
 
 interface RetryDependencies {
   now?: () => number
@@ -18,8 +18,10 @@ const sleep = (milliseconds: number) => new Promise<void>((resolve) => setTimeou
 
 export async function reconcileDesiredRecord(input: {
   desired: DnsRecordInput
+  force?: boolean
   intervalMs?: number
   provider: DnsProvider
+  settleMs?: number
   timeoutMs?: number
   zone: DnsZone
   progress?: (message: string) => void
@@ -27,7 +29,8 @@ export async function reconcileDesiredRecord(input: {
 }): Promise<ReconciliationResult> {
   const now = input.dependencies?.now ?? Date.now
   const wait = input.dependencies?.sleep ?? sleep
-  const deadline = now() + (input.timeoutMs ?? 30_000)
+  const started = now()
+  const deadline = started + (input.timeoutMs ?? 30_000)
   let attempts = 0
   let appliedChanges = 0
 
@@ -50,21 +53,26 @@ export async function reconcileDesiredRecord(input: {
       )
     }
 
-    input.progress?.('Provider state is still stale; reconciling DNS records')
+    const remaining = deadline - now()
+    await wait(Math.min(input.intervalMs ?? 1000, Math.max(0, remaining)))
+
+    const settled = now() - started >= (input.settleMs ?? 5000)
+    if (!input.force || !settled || state.observed.length === 0) {
+      input.progress?.('Waiting for the DNS provider to publish the accepted change')
+      continue
+    }
+
+    input.progress?.('Provider state is still stale; reconciling the authorized DNS replacement')
     const plan = await input.provider.planChanges(input.zone, [input.desired], { force: true })
     if (plan.changes.some((change) => change.action !== 'skip')) {
       const result = await input.provider.applyChanges(input.zone, plan, { force: true })
       appliedChanges += result.applied.length
     }
-
-    const remaining = deadline - now()
-    await wait(Math.min(input.intervalMs ?? 1000, Math.max(0, remaining)))
   }
 }
 
 export async function reconcileRecordRemoval(input: {
   intervalMs?: number
-  plannedRecords: DnsRecord[]
   provider: DnsProvider
   selector: DnsRecordSelector
   timeoutMs?: number
@@ -76,7 +84,7 @@ export async function reconcileRecordRemoval(input: {
   const wait = input.dependencies?.sleep ?? sleep
   const deadline = now() + (input.timeoutMs ?? 30_000)
   let attempts = 0
-  let appliedChanges = 0
+  const appliedChanges = 0
 
   while (true) {
     attempts += 1
@@ -97,27 +105,7 @@ export async function reconcileRecordRemoval(input: {
       )
     }
 
-    input.progress?.('Provider state is still stale; retrying DNS record deletion')
-    const plannedIds = new Set(input.plannedRecords.flatMap((record) => (record.id ? [record.id] : [])))
-    // Without stable ids, a stale read and a concurrently-created identical record are
-    // indistinguishable. Poll for the accepted deletion instead of risking an unplanned delete.
-    const retryable = observed.filter((record) => record.id && plannedIds.has(record.id))
-
-    if (retryable.length === 0) {
-      const remaining = deadline - now()
-      await wait(Math.min(input.intervalMs ?? 1000, Math.max(0, remaining)))
-      continue
-    }
-
-    const plan: DnsChangePlan = {
-      changes: retryable.map((existing) => ({ action: 'delete', existing })),
-      conflicts: [],
-      desired: [],
-      existing: records,
-      zone: input.zone,
-    }
-    const result = await input.provider.applyChanges(input.zone, plan, { force: true })
-    appliedChanges += result.applied.length
+    input.progress?.('Waiting for the DNS provider to publish the accepted deletion')
     const remaining = deadline - now()
     await wait(Math.min(input.intervalMs ?? 1000, Math.max(0, remaining)))
   }

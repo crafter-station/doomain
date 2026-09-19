@@ -36,7 +36,10 @@ export function sameDnsRecordValue(a: DnsRecord | DnsRecordInput, b: DnsRecord |
   return (
     a.name === b.name &&
     a.type === b.type &&
-    comparableRecordValue(a.type, a.value) === comparableRecordValue(b.type, b.value)
+    comparableRecordValue(a.type, a.value) === comparableRecordValue(b.type, b.value) &&
+    (b.ttl === undefined || a.ttl === b.ttl) &&
+    (b.priority === undefined || a.priority === b.priority) &&
+    (b.proxied === undefined || a.proxied === b.proxied)
   )
 }
 

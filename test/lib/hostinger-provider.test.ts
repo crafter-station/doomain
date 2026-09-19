@@ -238,4 +238,32 @@ describe('hostinger provider', () => {
     expect(requests[0].init?.method).to.equal('DELETE')
     expect(JSON.parse(String(requests[0].init?.body))).to.deep.equal({ filters: [{ name: 'app', type: 'CNAME' }] })
   })
+
+  it('preserves sibling values when applying an exact-value deletion plan', async () => {
+    const requests: Array<{ init?: RequestInit; input: RequestInfo | URL }> = []
+    globalThis.fetch = (async (input, init) => {
+      requests.push({ init, input })
+      return jsonResponse({ message: 'Request accepted' })
+    }) as typeof fetch
+
+    const provider = await createProvider('hostinger')
+    const zone = { id: 'example.com', name: 'example.com' }
+    const removed = { name: 'app', ttl: 300, type: 'A' as const, value: '203.0.113.10' }
+    const preserved = { name: 'app', ttl: 300, type: 'A' as const, value: '192.0.2.1' }
+    await provider.applyChanges(zone, {
+      changes: [{ action: 'delete', existing: removed }],
+      conflicts: [],
+      desired: [],
+      existing: [removed, preserved],
+      zone,
+    })
+
+    expect(requests.filter((request) => request.init?.method === 'DELETE')).to.deep.equal([])
+    expect(requests).to.have.length(1)
+    expect(requests[0].init?.method).to.equal('PUT')
+    expect(JSON.parse(String(requests[0].init?.body))).to.deep.equal({
+      overwrite: true,
+      zone: [{ name: 'app', records: [{ content: '192.0.2.1' }], ttl: 300, type: 'A' }],
+    })
+  })
 })

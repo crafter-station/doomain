@@ -45,47 +45,61 @@ describe('DNS reconciliation', () => {
       planDnsChanges({ desired: recordsToWrite, existing: records, force: opts?.force, providerId: 'test', zone })
     provider.applyChanges = async (_zone, plan) => {
       writes += 1
-      records = writes === 1 ? [] : [{ ...desired }]
+      records = []
       return { applied: plan.changes, skipped: [] }
     }
+    let now = 0
 
     const result = await reconcileDesiredRecord({
-      dependencies: { now: () => 0, sleep: async () => undefined },
+      dependencies: {
+        now: () => now,
+        sleep: async (milliseconds) => {
+          now += milliseconds
+          if (writes > 0 && records.length === 0) records = [{ ...desired }]
+        },
+      },
       desired,
-      intervalMs: 0,
+      force: true,
+      intervalMs: 1,
       provider,
+      settleMs: 1,
       timeoutMs: 1000,
       zone,
     })
 
-    assert.equal(writes, 2)
+    assert.equal(writes, 1)
     assert.equal(result.attempts, 3)
     assert.deepEqual(records, [desired])
   })
 
-  it('retries a delayed deletion of only the originally planned record', async () => {
+  it('polls for a delayed deletion without replaying the accepted delete', async () => {
     const planned: DnsRecord = { id: 'planned', name: 'app', type: 'A', value: '203.0.113.10' }
     let records = [planned]
     let writes = 0
+    let now = 0
     const provider = providerFixture(records)
     provider.listRecords = async () => records
     provider.applyChanges = async (_zone, plan) => {
       writes += 1
-      if (writes === 2) records = []
       return { applied: plan.changes, skipped: [] }
     }
 
     const result = await reconcileRecordRemoval({
-      dependencies: { now: () => 0, sleep: async () => undefined },
-      intervalMs: 0,
-      plannedRecords: [planned],
+      dependencies: {
+        now: () => now,
+        sleep: async (milliseconds) => {
+          now += milliseconds
+          records = []
+        },
+      },
+      intervalMs: 1,
       provider,
       selector: { name: 'app', type: 'A', value: planned.value },
       timeoutMs: 1000,
       zone,
     })
 
-    assert.equal(writes, 2)
+    assert.equal(writes, 0)
     assert.equal(result.reconciled, true)
   })
 
@@ -109,7 +123,6 @@ describe('DNS reconciliation', () => {
           },
         },
         intervalMs: 1,
-        plannedRecords: [planned],
         provider,
         selector: { name: 'app', type: 'A', value: planned.value },
         timeoutMs: 2,
@@ -118,5 +131,67 @@ describe('DNS reconciliation', () => {
       (error: unknown) => error instanceof DoomainError && error.code === 'DNS_RECONCILIATION_INCOMPLETE',
     )
     assert.equal(writes, 0)
+  })
+
+  it('does not replay a create while an accepted write is still absent from stale reads', async () => {
+    const desired: DnsRecordInput = { name: 'app', type: 'A', value: '203.0.113.10' }
+    let now = 0
+    let plans = 0
+    const provider = providerFixture([])
+    provider.planChanges = async (_zone, recordsToWrite, opts) => {
+      plans += 1
+      return planDnsChanges({ desired: recordsToWrite, existing: [], force: opts?.force, providerId: 'test', zone })
+    }
+
+    await assert.rejects(
+      reconcileDesiredRecord({
+        dependencies: {
+          now: () => now,
+          sleep: async (milliseconds) => {
+            now += milliseconds
+          },
+        },
+        desired,
+        force: true,
+        intervalMs: 1,
+        provider,
+        settleMs: 1,
+        timeoutMs: 2,
+        zone,
+      }),
+      (error: unknown) => error instanceof DoomainError && error.code === 'DNS_RECONCILIATION_INCOMPLETE',
+    )
+    assert.equal(plans, 0)
+  })
+
+  it('does not escalate an unforced reconciliation when a conflict appears', async () => {
+    const desired: DnsRecordInput = { name: 'app', type: 'A', value: '203.0.113.10' }
+    let now = 0
+    let plans = 0
+    const provider = providerFixture([{ name: 'app', type: 'A', value: '192.0.2.1' }])
+    provider.planChanges = async (_zone, recordsToWrite, opts) => {
+      plans += 1
+      return planDnsChanges({ desired: recordsToWrite, existing: [], force: opts?.force, providerId: 'test', zone })
+    }
+
+    await assert.rejects(
+      reconcileDesiredRecord({
+        dependencies: {
+          now: () => now,
+          sleep: async (milliseconds) => {
+            now += milliseconds
+          },
+        },
+        desired,
+        force: false,
+        intervalMs: 1,
+        provider,
+        settleMs: 0,
+        timeoutMs: 2,
+        zone,
+      }),
+      (error: unknown) => error instanceof DoomainError && error.code === 'DNS_RECONCILIATION_INCOMPLETE',
+    )
+    assert.equal(plans, 0)
   })
 })

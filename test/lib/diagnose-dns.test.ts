@@ -86,6 +86,7 @@ describe('diagnose DNS', () => {
       { name: '@', type: 'A', value: '76.76.21.21' },
       { name: '@', type: 'A', value: '192.0.2.1' },
       { name: '@', type: 'CNAME', value: 'origin.example.net' },
+      { name: '@', priority: 10, type: 'MX', value: 'mail.example.net' },
     ])
     const result = await diagnoseDns(
       { domain: 'example.com', target: '203.0.113.10' },
@@ -101,5 +102,11 @@ describe('diagnose DNS', () => {
       'cname_slot_conflict',
       'multiple_values',
     ])
+    assert.equal(
+      result.conflicts
+        .find((conflict) => conflict.reason === 'cname_slot_conflict')
+        ?.records.some((record) => record.type === 'MX'),
+      true,
+    )
   })
 })

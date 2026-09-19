@@ -192,14 +192,31 @@ export class HostingerProvider implements DnsProvider {
     const applied: DnsChange[] = []
     const skipped: DnsRecordInput[] = []
 
+    const deletionSets = new Map<string, Extract<DnsChange, { action: 'delete' }>['existing'][]>()
+    for (const change of plan.changes) {
+      if (change.action !== 'delete') continue
+      const key = `${change.existing.type}\0${change.existing.name}`
+      const records = deletionSets.get(key) ?? []
+      records.push(change.existing)
+      deletionSets.set(key, records)
+    }
+
+    for (const deleted of deletionSets.values()) {
+      const sample = deleted[0]
+      const remaining = plan.existing.filter((record) => sameRecordSet(record, sample) && !deleted.includes(record))
+      if (remaining.length > 0) await this.putRecords(zone, remaining, true)
+      else await this.deleteRecord(zone, sample)
+      applied.push(...plan.changes.filter((change) => change.action === 'delete' && deleted.includes(change.existing)))
+    }
+
     for (const change of plan.changes) {
       if (change.action === 'skip') {
         skipped.push(change.record)
         continue
       }
 
-      if (change.action === 'delete') await this.deleteRecord(zone, change.existing)
-      else await this.putRecords(zone, [change.record], change.action === 'update')
+      if (change.action === 'delete') continue
+      await this.putRecords(zone, [change.record], change.action === 'update')
 
       applied.push(change)
     }
