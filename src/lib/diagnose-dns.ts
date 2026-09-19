@@ -10,7 +10,13 @@ import {
   isNegativeDnsObservation,
   observeDnsRecord,
 } from './dns-propagation.js'
-import { desiredSlotPostcondition, inferAddressRecordType, normalizeDnsValue } from './dns-records.js'
+import {
+  desiredSlotPostcondition,
+  dnsRecordNamesEqual,
+  inferAddressRecordType,
+  normalizeAddressRecordTarget,
+  normalizeDnsValue,
+} from './dns-records.js'
 import { type ResolvedDnsTarget, resolveProviderTarget } from './domain-provider.js'
 import { DoomainError } from './errors.js'
 import { createProvider } from './providers/registry.js'
@@ -161,6 +167,9 @@ export async function diagnoseDns(
   input: DiagnoseDnsInput,
   dependencies: DiagnoseDnsDependencies = defaultDependencies,
 ): Promise<DiagnoseDnsResult> {
+  const recordType = input.recordType ?? (input.target ? inferAddressRecordType(input.target.trim()) : undefined) ?? 'A'
+  const requestedTarget =
+    input.target === undefined ? undefined : normalizeAddressRecordTarget(recordType, input.target)
   let resolved: ResolvedDnsTarget
   try {
     resolved = await dependencies.resolveTarget(input)
@@ -170,11 +179,19 @@ export async function diagnoseDns(
   }
   const provider = await dependencies.createProvider(resolved.provider, { account: resolved.account })
   const zone = await provider.getZone(resolved.target.zoneDomain)
-  const allRecords = zone ? await provider.listRecords(zone) : []
-  const providerRecords = allRecords.filter((record) => record.name === resolved.target.recordName)
-  const recordType = input.recordType ?? (input.target ? inferAddressRecordType(input.target) : undefined) ?? 'A'
+  if (!zone) {
+    throw diagnosisResolutionError(
+      new DoomainError(
+        'PROVIDER_ZONE_NOT_FOUND',
+        `${provider.name} does not have a DNS zone for ${resolved.target.zoneDomain}.`,
+      ),
+      input,
+    )
+  }
+  const allRecords = await provider.listRecords(zone)
+  const providerRecords = allRecords.filter((record) => dnsRecordNamesEqual(record.name, resolved.target.recordName))
   const recordsOfType = providerRecords.filter((record) => record.type === recordType)
-  const expected = input.target ?? (recordsOfType.length === 1 ? recordsOfType[0].value : undefined)
+  const expected = requestedTarget ?? (recordsOfType.length === 1 ? recordsOfType[0].value : undefined)
   const queryTarget = { type: recordType, value: expected ?? recordsOfType[0]?.value ?? '' }
   const observations = await dependencies.observeDns(resolved.target.fullDomain, queryTarget, 0)
   const macOsResolvers = await dependencies.macOsResolvers?.()

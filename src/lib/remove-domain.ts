@@ -41,15 +41,26 @@ interface RemoveDomainDependencies {
 
 const defaultDependencies: RemoveDomainDependencies = { createProvider, resolveTarget: resolveProviderTarget }
 
+function quoteCommandArgument(value: string): string {
+  return /^[a-zA-Z0-9_./:@+-]+$/.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`
+}
+
+function removalCommand(input: RemoveDomainInput, options?: { allMatching?: boolean; dryRun?: boolean }): string {
+  const arguments_ = ['doomain', 'dns', 'remove', quoteCommandArgument(input.domain)]
+  if (input.provider) arguments_.push('--provider', quoteCommandArgument(input.provider))
+  if (input.account) arguments_.push('--account', quoteCommandArgument(input.account))
+  arguments_.push('--type', input.recordType)
+  if (input.value !== undefined) arguments_.push('--value', quoteCommandArgument(input.value))
+  if (options?.allMatching ?? input.allMatching) arguments_.push('--all-matching')
+  if (options?.dryRun ?? input.dryRun) arguments_.push('--dry-run')
+  arguments_.push('--json')
+  return arguments_.join(' ')
+}
+
 function removalResolutionError(error: DoomainError, input: RemoveDomainInput): DoomainError {
   if (error.code !== 'CONFIG_NOT_FOUND' && error.code !== 'PROVIDER_ZONE_NOT_FOUND') return error
   const details = error.details && typeof error.details === 'object' ? error.details : {}
-  const provider = input.provider ? ` --provider ${input.provider}` : ''
-  const account = input.account ? ` --account ${input.account}` : ''
-  const value = input.value === undefined ? '' : ` --value ${input.value}`
-  const allMatching = input.allMatching ? ' --all-matching' : ''
-  const dryRun = input.dryRun ? ' --dry-run' : ''
-  const retry = `doomain dns remove ${input.domain}${provider}${account} --type ${input.recordType}${value}${allMatching}${dryRun} --json`
+  const retry = removalCommand(input)
   return new DoomainError(error.code, error.message, {
     ...details,
     recovery: `Connect or repair the DNS provider account that owns this domain, then retry \`${retry}\`.`,
@@ -64,9 +75,7 @@ function ambiguousDeletionError(input: RemoveDomainInput, records: DnsRecord[]):
     {
       matched: records,
       recovery: 'Narrow the deletion with --value, or explicitly approve all matching records with --all-matching.',
-      suggestedCommands: [
-        `doomain dns remove ${input.domain} --type ${input.recordType} --all-matching --dry-run --json`,
-      ],
+      suggestedCommands: [removalCommand(input, { allMatching: true, dryRun: true })],
     },
   )
 }

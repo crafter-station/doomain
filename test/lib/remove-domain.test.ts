@@ -73,16 +73,29 @@ describe('remove domain', () => {
     const fixture = providerWith([
       { id: '1', name: 'app', type: 'A', value: '203.0.113.10' },
       { id: '2', name: 'app', type: 'A', value: '203.0.113.10' },
+      { id: '3', name: 'app', type: 'A', value: '192.0.2.1' },
     ])
 
     await assert.rejects(
       removeDomain(
-        { domain: 'app.example.com', recordType: 'A', value: '203.0.113.10' },
+        {
+          account: 'work',
+          domain: 'app.example.com',
+          provider: 'spaceship',
+          recordType: 'A',
+          value: '203.0.113.10',
+        },
         { createProvider: async () => fixture.provider, resolveTarget: async () => resolved },
       ),
-      (error: unknown) => error instanceof DoomainError && error.code === 'DNS_DELETE_AMBIGUOUS',
+      (error: unknown) => {
+        if (!(error instanceof DoomainError) || error.code !== 'DNS_DELETE_AMBIGUOUS') return false
+        const details = error.details as { suggestedCommands: string[] }
+        return details.suggestedCommands.includes(
+          'doomain dns remove app.example.com --provider spaceship --account work --type A --value 203.0.113.10 --all-matching --dry-run --json',
+        )
+      },
     )
-    assert.equal(fixture.records().length, 2)
+    assert.equal(fixture.records().length, 3)
   })
 
   it('dry-runs all matching records without deleting any', async () => {
@@ -181,6 +194,32 @@ describe('remove domain', () => {
           details.recovery.includes(retry) &&
           details.suggestedCommands.includes(retry) &&
           !details.suggestedCommands.some((command) => command.startsWith('doomain link'))
+        )
+      },
+    )
+  })
+
+  it('shell-quotes TXT values in removal recovery commands', async () => {
+    await assert.rejects(
+      removeDomain(
+        {
+          domain: '_spf.example.com',
+          provider: 'spaceship',
+          recordType: 'TXT',
+          value: "v=spf1 include:_spf.example.com ~all 'proof'",
+        },
+        {
+          createProvider: async () => providerWith([]).provider,
+          resolveTarget: async () => {
+            throw new DoomainError('PROVIDER_ZONE_NOT_FOUND', 'No matching zone.')
+          },
+        },
+      ),
+      (error: unknown) => {
+        if (!(error instanceof DoomainError)) return false
+        const details = error.details as { suggestedCommands: string[] }
+        return details.suggestedCommands.includes(
+          `doomain dns remove _spf.example.com --provider spaceship --type TXT --value 'v=spf1 include:_spf.example.com ~all '"'"'proof'"'"'' --json`,
         )
       },
     )

@@ -1,14 +1,11 @@
-import { isIP } from 'node:net'
-
 import { type DnsPropagationResult, type DnsResolverObservation, waitForDnsPropagation } from './dns-propagation.js'
 import { reconcileDesiredRecord } from './dns-reconciliation.js'
-import { inferAddressRecordType } from './dns-records.js'
+import { inferAddressRecordType, normalizeAddressRecordTarget } from './dns-records.js'
 import { type ResolvedDnsTarget, resolveProviderTarget } from './domain-provider.js'
 import { DoomainError } from './errors.js'
 import { type DnsOverrideWarning, withProviderRecordOptions } from './link-domain.js'
 import { createProvider } from './providers/registry.js'
 import type { DnsProvider, DnsRecordInput } from './providers/types.js'
-import { normalizeDomain } from './validate.js'
 
 export type PointRecordType = 'A' | 'AAAA' | 'CNAME'
 
@@ -61,19 +58,6 @@ const defaultDependencies: PointDomainDependencies = {
   resolveTarget: resolveProviderTarget,
 }
 
-function cleanTarget(value: string): string {
-  return value.trim().replace(/\.$/, '')
-}
-
-function validateTarget(recordType: PointRecordType, target: string): void {
-  const version = isIP(target)
-  if (recordType === 'A' && version !== 4) throw new DoomainError('INVALID_INPUT', 'A records require an IPv4 target.')
-  if (recordType === 'AAAA' && version !== 6)
-    throw new DoomainError('INVALID_INPUT', 'AAAA records require an IPv6 target.')
-  if (recordType === 'CNAME' && version !== 0)
-    throw new DoomainError('INVALID_INPUT', 'CNAME records require a hostname target.')
-}
-
 export function createPointRecord(input: {
   provider: string
   recordName: string
@@ -81,15 +65,13 @@ export function createPointRecord(input: {
   target: string
   ttl?: number
 }): DnsRecordInput {
-  const target = cleanTarget(input.target)
-  if (!target) throw new DoomainError('MISSING_ARGUMENT', 'A DNS target is required.')
-  const recordType = input.recordType ?? inferAddressRecordType(target)
-  validateTarget(recordType, target)
+  const recordType = input.recordType ?? inferAddressRecordType(input.target.trim())
+  const target = normalizeAddressRecordTarget(recordType, input.target)
   return withProviderRecordOptions(input.provider, {
     name: input.recordName,
     ttl: input.ttl ?? 300,
     type: recordType,
-    value: recordType === 'CNAME' ? normalizeDomain(target) : target,
+    value: target,
   })
 }
 

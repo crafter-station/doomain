@@ -177,4 +177,37 @@ describe('diagnose DNS', () => {
       true,
     )
   })
+
+  it('rejects a missing resolved provider zone', async () => {
+    const provider = providerWith([])
+    provider.getZone = async () => null
+
+    await assert.rejects(
+      diagnoseDns(
+        { domain: 'example.com' },
+        {
+          createProvider: async () => provider,
+          observeDns: async () => [],
+          resolveTarget: async () => resolved,
+        },
+      ),
+      (error: unknown) => error instanceof DoomainError && error.code === 'PROVIDER_ZONE_NOT_FOUND',
+    )
+  })
+
+  for (const input of [
+    { domain: 'example.com', recordType: 'A' as const, target: 'origin.example.net' },
+    { domain: 'example.com', recordType: 'CNAME' as const, target: '203.0.113.10' },
+  ]) {
+    it(`rejects incompatible ${input.recordType} diagnosis target ${input.target}`, async () => {
+      await assert.rejects(
+        diagnoseDns(input, {
+          createProvider: async () => providerWith([]),
+          observeDns: async () => [],
+          resolveTarget: async () => resolved,
+        }),
+        (error: unknown) => error instanceof DoomainError && error.code === 'INVALID_INPUT',
+      )
+    })
+  }
 })
