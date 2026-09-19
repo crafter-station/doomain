@@ -1,7 +1,7 @@
 import { Effect } from 'effect'
 
 import { type DoomainConfig, loadConfig, type ProviderConfig } from '../../config.js'
-import type { DoomainEffect } from '../../effect.js'
+import { type DoomainEffect, trySync } from '../../effect.js'
 import { DoomainError, type DoomainErrorCode } from '../../errors.js'
 import { ensureProviderAccount } from '../../validate.js'
 import type { CredentialDefinition, DnsProviderDefinition, ProviderContext } from './types.js'
@@ -151,7 +151,7 @@ export function createProviderContext(
   return Effect.gen(function* () {
     const config = yield* loadConfig()
     const credentials: Record<string, string> = {}
-    const account = normalizeProviderAccount(opts.account)
+    const account = yield* trySync(() => normalizeProviderAccount(opts.account), 'INVALID_INPUT')
 
     for (const credential of definition.credentials) {
       const value = getProviderCredential(config, definition.id, credential, { account })

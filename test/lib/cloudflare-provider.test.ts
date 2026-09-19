@@ -67,6 +67,21 @@ describe('cloudflare provider', () => {
     }
   })
 
+  it('fails in the typed channel for malformed successful responses', async () => {
+    globalThis.fetch = (async () => new Response('not json', { status: 200 })) as typeof fetch
+    const provider = promiseProvider(
+      await runEffect(createProvider('cloudflare', { transportErrorCode: 'DNS_POINT_FAILED' })),
+    )
+
+    try {
+      await provider.listZones()
+      throw new Error('Expected listZones to fail')
+    } catch (error) {
+      expect(error).to.be.instanceOf(DoomainError)
+      expect((error as DoomainError).code).to.equal('DNS_POINT_FAILED')
+    }
+  })
+
   it('lists DNS records with relative names', async () => {
     globalThis.fetch = (async () =>
       jsonResponse(

@@ -152,7 +152,7 @@ export function createClerkPlatformClient(
       }
 
       return (yield* Effect.tryPromise(() => response.json()).pipe(
-        Effect.mapError((cause) => new DoomainError('DOMAIN_LINK_FAILED', 'Clerk returned invalid JSON.', cause)),
+        Effect.mapError((cause) => toDoomainError(cause, opts.transportErrorCode ?? 'DOMAIN_LINK_FAILED')),
       )) as T
     })
   }

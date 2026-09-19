@@ -134,4 +134,21 @@ describe('clerk platform client', () => {
     expect((error as DoomainError).code).to.equal('CLERK_AUTH_FAILED')
     expect((error as Error).message).to.equal('network unavailable')
   })
+
+  it('uses the caller transport error code for malformed successful responses', async () => {
+    globalThis.fetch = (async () => new Response('not json', { status: 200 })) as typeof fetch
+
+    let error: unknown
+    try {
+      await createClerkPlatformClient(
+        { platformApiKey: 'ak_test' },
+        { transportErrorCode: 'CLERK_AUTH_FAILED' },
+      ).fetchApplication('app_123')
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(error).to.be.instanceOf(DoomainError)
+    expect((error as DoomainError).code).to.equal('CLERK_AUTH_FAILED')
+  })
 })

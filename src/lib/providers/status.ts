@@ -1,7 +1,7 @@
 import { Effect } from 'effect'
 
 import { type DoomainConfig, loadConfig } from '../config.js'
-import type { DoomainEffect } from '../effect.js'
+import { type DoomainEffect, trySync } from '../effect.js'
 import {
   DEFAULT_PROVIDER_ACCOUNT,
   isProviderAccountConfigured,
@@ -41,14 +41,14 @@ export function listProviderStatuses(opts: { verify?: boolean } = {}): DoomainEf
     const statuses: ProviderStatus[] = []
 
     for (const definition of listProviderDefinitions()) {
-      const accounts = listConfiguredProviderAccounts(config, definition)
+      const accounts = yield* trySync(() => listConfiguredProviderAccounts(config, definition), 'INVALID_INPUT')
       const refs =
         accounts.length > 0
           ? accounts
           : [{ account: DEFAULT_PROVIDER_ACCOUNT, isDefaultAccount: true, providerId: definition.id }]
 
       for (const ref of refs) {
-        const account = normalizeProviderAccount(ref.account)
+        const account = yield* trySync(() => normalizeProviderAccount(ref.account), 'INVALID_INPUT')
         const configured = accounts.some((item) => item.account === account)
         const status: ProviderStatus = {
           account,

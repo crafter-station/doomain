@@ -51,9 +51,10 @@ export class ProviderHttpClient {
         catch: (cause) => toDoomainError(cause, this.opts.transportErrorCode ?? 'PROVIDER_API_ERROR'),
       })
 
-      const parseJson = Effect.tryPromise(() => response.json()).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
       if (!response.ok) {
-        const details = yield* parseJson
+        const details = yield* Effect.tryPromise(() => response.json()).pipe(
+          Effect.catchAll(() => Effect.succeed(undefined)),
+        )
         return yield* Effect.fail(
           new ProviderError(
             this.opts.providerId,
@@ -65,7 +66,10 @@ export class ProviderHttpClient {
       }
 
       if (response.status === 204) return undefined as T
-      return (yield* parseJson) as T
+      return (yield* Effect.tryPromise({
+        try: () => response.json(),
+        catch: (cause) => toDoomainError(cause, this.opts.transportErrorCode ?? 'PROVIDER_API_ERROR'),
+      })) as T
     })
   }
 }

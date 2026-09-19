@@ -58,7 +58,7 @@ export default class DomainsList extends Command {
             : undefined
           const accounts: ProviderAccountRef[] = account
             ? [{ account, isDefaultAccount: isDefaultProviderAccount(account), providerId: definition.id }]
-            : listConfiguredProviderAccounts(config, definition)
+            : yield* trySync(() => listConfiguredProviderAccounts(config, definition), 'DOMAIN_LINK_FAILED')
           const selectedAccounts =
             accounts.length > 0
               ? accounts

@@ -255,7 +255,7 @@ function loadConfiguredProviderZones(
       const definition = yield* trySync(() => getProviderDefinition(providerId), 'PROVIDER_NOT_FOUND')
       const accounts = account
         ? [explicitAccountRef(definition.id, account)]
-        : listConfiguredProviderAccounts(config, definition)
+        : yield* trySync(() => listConfiguredProviderAccounts(config, definition), 'INVALID_INPUT')
       const selectedAccounts = accounts.length > 0 ? accounts : [defaultAccountRef(definition.id)]
       const tolerateAccountErrors = tolerateProviderAccountErrors && !account && selectedAccounts.length > 1
       const results = yield* Effect.all(
@@ -274,10 +274,14 @@ function loadConfiguredProviderZones(
       }
     }
 
-    const providerAccounts = listProviderDefinitions().flatMap((definition) =>
-      listConfiguredProviderAccounts(config, definition)
-        .filter((ref) => !account || ref.account === account)
-        .map((ref) => ({ definition, ref })),
+    const providerAccounts = yield* trySync(
+      () =>
+        listProviderDefinitions().flatMap((definition) =>
+          listConfiguredProviderAccounts(config, definition)
+            .filter((ref) => !account || ref.account === account)
+            .map((ref) => ({ definition, ref })),
+        ),
+      'INVALID_INPUT',
     )
 
     if (providerAccounts.length === 0) {

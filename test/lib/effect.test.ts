@@ -3,6 +3,7 @@ import { describe, it } from 'mocha'
 
 import { tryPromise } from '../../src/lib/effect.js'
 import { DoomainError } from '../../src/lib/errors.js'
+import { createProvider } from '../../src/lib/providers/registry.js'
 import { runEffect } from '../helpers/effect.js'
 
 describe('Doomain Effect helpers', () => {
@@ -20,6 +21,13 @@ describe('Doomain Effect helpers', () => {
         tryPromise(() => Promise.reject(new DoomainError('DNS_TARGET_CONFLICT', 'DNS conflict')), 'DNS_POINT_FAILED'),
       ),
       (error: unknown) => error instanceof DoomainError && error.code === 'DNS_TARGET_CONFLICT',
+    )
+  })
+
+  it('keeps synchronous provider account validation in the typed channel', async () => {
+    await assert.rejects(
+      runEffect(createProvider('spaceship', { account: 'bad account' })),
+      (error: unknown) => error instanceof DoomainError && error.code === 'INVALID_INPUT',
     )
   })
 })
