@@ -250,11 +250,12 @@ describe('hostinger provider', () => {
     const zone = { id: 'example.com', name: 'example.com' }
     const removed = { name: 'app', ttl: 300, type: 'A' as const, value: '203.0.113.10' }
     const preserved = { name: 'app', ttl: 300, type: 'A' as const, value: '192.0.2.1' }
+    const alsoPreserved = { name: 'app', ttl: 300, type: 'A' as const, value: '192.0.2.2' }
     await provider.applyChanges(zone, {
       changes: [{ action: 'delete', existing: removed }],
       conflicts: [],
       desired: [],
-      existing: [removed, preserved],
+      existing: [removed, preserved, alsoPreserved],
       zone,
     })
 
@@ -263,7 +264,14 @@ describe('hostinger provider', () => {
     expect(requests[0].init?.method).to.equal('PUT')
     expect(JSON.parse(String(requests[0].init?.body))).to.deep.equal({
       overwrite: true,
-      zone: [{ name: 'app', records: [{ content: '192.0.2.1' }], ttl: 300, type: 'A' }],
+      zone: [
+        {
+          name: 'app',
+          records: [{ content: '192.0.2.1' }, { content: '192.0.2.2' }],
+          ttl: 300,
+          type: 'A',
+        },
+      ],
     })
   })
 })

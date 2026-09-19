@@ -90,12 +90,13 @@ function toDnsRecords(record: HostingerZoneRecord, zone: DnsZone): DnsRecord[] {
   })
 }
 
-function toHostingerRecord(record: DnsRecordInput): HostingerZoneRecord {
+function toHostingerRecordSet(records: DnsRecordInput[]): HostingerZoneRecord {
+  const first = records[0]
   return {
-    name: record.name,
-    records: [{ content: record.value }],
-    ttl: record.ttl ?? capabilities.defaultTtl,
-    type: record.type,
+    name: first.name,
+    records: records.map((record) => ({ content: record.value })),
+    ttl: first.ttl ?? capabilities.defaultTtl,
+    type: first.type,
   }
 }
 
@@ -237,8 +238,15 @@ export class HostingerProvider implements DnsProvider {
   }
 
   private async putRecords(zone: DnsZone, records: DnsRecordInput[], overwrite: boolean): Promise<void> {
+    const recordSets = new Map<string, DnsRecordInput[]>()
+    for (const record of records) {
+      const key = `${record.type}\0${record.name}`
+      const values = recordSets.get(key) ?? []
+      values.push(record)
+      recordSets.set(key, values)
+    }
     await this.http.request(`/api/dns/v1/zones/${encodeURIComponent(zone.name)}`, {
-      body: { overwrite, zone: records.map(toHostingerRecord) },
+      body: { overwrite, zone: [...recordSets.values()].map(toHostingerRecordSet) },
       method: 'PUT',
     })
   }

@@ -32,11 +32,17 @@ function comparableRecordValue(type: DnsRecord['type'], value: string): string {
   return type === 'TXT' ? value : normalizeDnsValue(value)
 }
 
-export function sameDnsRecordValue(a: DnsRecord | DnsRecordInput, b: DnsRecord | DnsRecordInput): boolean {
+export function sameDnsRecordTarget(a: DnsRecord | DnsRecordInput, b: DnsRecord | DnsRecordInput): boolean {
   return (
     a.name === b.name &&
     a.type === b.type &&
-    comparableRecordValue(a.type, a.value) === comparableRecordValue(b.type, b.value) &&
+    comparableRecordValue(a.type, a.value) === comparableRecordValue(b.type, b.value)
+  )
+}
+
+export function sameDnsRecordValue(a: DnsRecord | DnsRecordInput, b: DnsRecord | DnsRecordInput): boolean {
+  return (
+    sameDnsRecordTarget(a, b) &&
     (b.ttl === undefined || a.ttl === b.ttl) &&
     (b.priority === undefined || a.priority === b.priority) &&
     (b.proxied === undefined || a.proxied === b.proxied)

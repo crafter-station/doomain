@@ -11,6 +11,7 @@ import {
 } from './dns-propagation.js'
 import { desiredSlotPostcondition, inferAddressRecordType, normalizeDnsValue } from './dns-records.js'
 import { type ResolvedDnsTarget, resolveProviderTarget } from './domain-provider.js'
+import { DoomainError } from './errors.js'
 import { createProvider } from './providers/registry.js'
 import type { DnsProvider, DnsRecord, DnsRecordInput, DnsRecordType } from './providers/types.js'
 
@@ -108,7 +109,7 @@ const defaultDependencies: DiagnoseDnsDependencies = {
   createProvider,
   macOsResolvers: readMacOsResolvers,
   observeDns: (fqdn, target, elapsedMs) => observeDnsRecord(fqdn, target, undefined, elapsedMs),
-  resolveTarget: resolveProviderTarget,
+  resolveTarget: (input) => resolveProviderTarget(input, { tolerateProviderAccountErrors: true }),
 }
 
 function recordConflicts(records: DnsRecord[]): DnsRecordConflict[] {
@@ -140,11 +141,30 @@ function diagnosisStatus(status: DnsPropagationStatus): DnsDiagnosisStatus {
   return 'public_propagation_pending'
 }
 
+function diagnosisResolutionError(error: DoomainError, input: DiagnoseDnsInput): DoomainError {
+  if (error.code !== 'CONFIG_NOT_FOUND' && error.code !== 'PROVIDER_ZONE_NOT_FOUND') return error
+  const details = error.details && typeof error.details === 'object' ? error.details : {}
+  const provider = input.provider ? ` --provider ${input.provider}` : ''
+  const account = input.account ? ` --account ${input.account}` : ''
+  const retry = `doomain dns diagnose ${input.domain}${provider}${account} --json`
+  return new DoomainError(error.code, error.message, {
+    ...details,
+    recovery: `Connect or repair the DNS provider account that owns this domain, then retry \`${retry}\`.`,
+    suggestedCommands: ['doomain providers connect', retry],
+  })
+}
+
 export async function diagnoseDns(
   input: DiagnoseDnsInput,
   dependencies: DiagnoseDnsDependencies = defaultDependencies,
 ): Promise<DiagnoseDnsResult> {
-  const resolved = await dependencies.resolveTarget(input)
+  let resolved: ResolvedDnsTarget
+  try {
+    resolved = await dependencies.resolveTarget(input)
+  } catch (error) {
+    if (error instanceof DoomainError) throw diagnosisResolutionError(error, input)
+    throw error
+  }
   const provider = await dependencies.createProvider(resolved.provider, { account: resolved.account })
   const zone = await provider.getZone(resolved.target.zoneDomain)
   const allRecords = zone ? await provider.listRecords(zone) : []

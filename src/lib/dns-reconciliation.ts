@@ -1,4 +1,9 @@
-import { type DnsRecordSelector, desiredSlotPostcondition, recordMatchesSelector } from './dns-records.js'
+import {
+  type DnsRecordSelector,
+  desiredSlotPostcondition,
+  recordMatchesSelector,
+  sameDnsRecordTarget,
+} from './dns-records.js'
 import { DoomainError } from './errors.js'
 import type { DnsProvider, DnsRecord, DnsRecordInput, DnsZone } from './providers/types.js'
 
@@ -57,7 +62,8 @@ export async function reconcileDesiredRecord(input: {
     await wait(Math.min(input.intervalMs ?? 1000, Math.max(0, remaining)))
 
     const settled = now() - started >= (input.settleMs ?? 5000)
-    if (!input.force || !settled || state.observed.length === 0) {
+    const desiredWasObserved = state.observed.some((record) => sameDnsRecordTarget(record, input.desired))
+    if (!input.force || !settled || !desiredWasObserved) {
       input.progress?.('Waiting for the DNS provider to publish the accepted change')
       continue
     }

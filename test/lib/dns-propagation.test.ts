@@ -59,4 +59,41 @@ describe('DNS propagation classification', () => {
       'local_or_vpn_cache_stale',
     )
   })
+
+  it('counts cached negative public answers as propagation pending', () => {
+    assert.equal(
+      classifyDnsPropagation([
+        {
+          answers: [{ ttl: 300, value: '203.0.113.10' }],
+          elapsedMs: 0,
+          kind: 'system',
+          matches: true,
+          resolver: 'system',
+          servers: ['192.0.2.53'],
+          type: 'A',
+        },
+        {
+          answers: [],
+          elapsedMs: 0,
+          error: 'queryA ENOTFOUND app.example.com',
+          errorCode: 'ENOTFOUND',
+          kind: 'public',
+          matches: false,
+          resolver: 'cloudflare',
+          servers: ['1.1.1.1'],
+          type: 'A',
+        },
+        {
+          answers: [{ ttl: 300, value: '203.0.113.10' }],
+          elapsedMs: 0,
+          kind: 'public',
+          matches: true,
+          resolver: 'google',
+          servers: ['8.8.8.8'],
+          type: 'A',
+        },
+      ]),
+      'public_propagation_pending',
+    )
+  })
 })

@@ -13,6 +13,7 @@ export interface DnsResolverObservation {
   answers: DnsAnswer[]
   elapsedMs: number
   error?: string
+  errorCode?: string
   expected?: string
   kind: 'public' | 'system'
   matches?: boolean
@@ -101,10 +102,15 @@ export async function observeDnsRecord(
           type: target.type,
         }
       } catch (error) {
+        const errorCode =
+          error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+            ? error.code
+            : undefined
         return {
           answers: [],
           elapsedMs,
           error: error instanceof Error ? error.message : String(error),
+          ...(errorCode ? { errorCode } : {}),
           expected: target.value,
           kind: spec.kind,
           matches: false,
@@ -118,7 +124,12 @@ export async function observeDnsRecord(
 }
 
 export function classifyDnsPropagation(observations: DnsResolverObservation[]): DnsPropagationStatus {
-  const publicResults = observations.filter((observation) => observation.kind === 'public' && !observation.error)
+  const negativeAnswerCodes = new Set(['ENODATA', 'ENOTFOUND'])
+  const publicResults = observations.filter(
+    (observation) =>
+      observation.kind === 'public' &&
+      (!observation.error || (observation.errorCode !== undefined && negativeAnswerCodes.has(observation.errorCode))),
+  )
   const system = observations.find((observation) => observation.kind === 'system')
   const publicMatches = publicResults.length > 0 && publicResults.every((observation) => observation.matches)
 

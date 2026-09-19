@@ -194,4 +194,35 @@ describe('DNS reconciliation', () => {
     )
     assert.equal(plans, 0)
   })
+
+  it('does not replay a forced replacement from an old-only stale view', async () => {
+    const desired: DnsRecordInput = { name: 'app', type: 'A', value: '203.0.113.10' }
+    let now = 0
+    let plans = 0
+    const provider = providerFixture([{ id: 'old-cname', name: 'app', type: 'CNAME', value: 'old.example.net' }])
+    provider.planChanges = async (_zone, recordsToWrite, opts) => {
+      plans += 1
+      return planDnsChanges({ desired: recordsToWrite, existing: [], force: opts?.force, providerId: 'test', zone })
+    }
+
+    await assert.rejects(
+      reconcileDesiredRecord({
+        dependencies: {
+          now: () => now,
+          sleep: async (milliseconds) => {
+            now += milliseconds
+          },
+        },
+        desired,
+        force: true,
+        intervalMs: 1,
+        provider,
+        settleMs: 0,
+        timeoutMs: 2,
+        zone,
+      }),
+      (error: unknown) => error instanceof DoomainError && error.code === 'DNS_RECONCILIATION_INCOMPLETE',
+    )
+    assert.equal(plans, 0)
+  })
 })

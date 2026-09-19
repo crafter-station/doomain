@@ -124,7 +124,7 @@ describe('findDomainProvider', () => {
     ])
   })
 
-  it('uses the unique healthy account for a mutating command when the default account is broken', async () => {
+  it('can report the unique healthy account during tolerant read-only discovery', async () => {
     await saveConfig({
       providers: {
         spaceship: {
@@ -145,7 +145,10 @@ describe('findDomainProvider', () => {
       throw new Error(`Unexpected request: ${url.href}`)
     }) as typeof fetch
 
-    const result = await resolveProviderTarget({ domain: 'app.example.com', provider: 'spaceship' })
+    const result = await resolveProviderTarget(
+      { domain: 'app.example.com', provider: 'spaceship' },
+      { tolerateProviderAccountErrors: true },
+    )
 
     expect(result.account).to.equal('personal')
     expect(result.warnings).to.have.length(1)

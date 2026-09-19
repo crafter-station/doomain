@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert'
 import { describe, it } from 'mocha'
 
 import { diagnoseDns } from '../../src/lib/diagnose-dns.js'
+import { DoomainError } from '../../src/lib/errors.js'
 import type { DnsProvider, DnsRecord, DnsZone } from '../../src/lib/providers/types.js'
 
 const zone: DnsZone = { id: 'zone-1', name: 'example.com' }
@@ -107,6 +108,32 @@ describe('diagnose DNS', () => {
         .find((conflict) => conflict.reason === 'cname_slot_conflict')
         ?.records.some((record) => record.type === 'MX'),
       true,
+    )
+  })
+
+  it('returns diagnosis-specific recovery commands when provider resolution fails', async () => {
+    await assert.rejects(
+      diagnoseDns(
+        { domain: 'app.example.com', provider: 'spaceship' },
+        {
+          createProvider: async () => providerWith([]),
+          observeDns: async () => [],
+          resolveTarget: async () => {
+            throw new DoomainError('PROVIDER_ZONE_NOT_FOUND', 'No matching zone.', {
+              suggestedCommands: ['doomain link app.example.com --json'],
+            })
+          },
+        },
+      ),
+      (error: unknown) => {
+        if (!(error instanceof DoomainError)) return false
+        const details = error.details as { recovery: string; suggestedCommands: string[] }
+        return (
+          details.recovery.includes('doomain dns diagnose app.example.com --provider spaceship --json') &&
+          details.suggestedCommands.includes('doomain dns diagnose app.example.com --provider spaceship --json') &&
+          !details.suggestedCommands.some((command) => command.startsWith('doomain link'))
+        )
+      },
     )
   })
 })
