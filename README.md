@@ -1,6 +1,6 @@
 # Doomain
 
-Doomain links Vercel projects and first-time Clerk production instances to custom domains from your terminal.
+Doomain points DNS records and links Vercel projects or first-time Clerk production instances to custom domains from your terminal.
 
 It handles the boring parts of custom-domain setup: selecting the Vercel project, finding the right DNS zone, adding the domain to Vercel, writing the Vercel DNS records, waiting for public DNS propagation, and asking Vercel to verify the domain.
 
@@ -12,6 +12,7 @@ Use the interactive wizard when working by hand. Use explicit commands with `--j
 - Script-friendly commands with one JSON object on stdout.
 - Vercel project detection from `.vercel/project.json`.
 - DNS provider inference by longest matching configured zone.
+- Generic DNS pointing for VPS, load balancer, and canonical-hostname targets.
 - Dry-run plans before writing changes.
 - Safety checks before replacing DNS records that point elsewhere.
 - DNS propagation and Vercel verification wait loop.
@@ -87,6 +88,12 @@ Apply it:
 doomain link app.example.com --project my-vercel-project --json
 ```
 
+Point a domain at non-Vercel infrastructure such as a VPS:
+
+```bash
+doomain dns point app.example.com --target 203.0.113.10 --json
+```
+
 Set up a Clerk application's first production instance and primary domain:
 
 ```bash
@@ -154,7 +161,7 @@ doomain providers connect cloudflare \
   --credential accountId=your_cloudflare_account_id
 ```
 
-Cloudflare records created for Vercel or Clerk `A`, `AAAA`, and `CNAME` targets are set to `proxied: false` so the service can validate the domain.
+Cloudflare `A`, `AAAA`, and `CNAME` records created by Doomain are set to `proxied: false` so targets remain directly verifiable.
 
 ### Hostinger
 
@@ -220,6 +227,39 @@ Use `-p` as shorthand for `--project`:
 ```bash
 doomain link app.example.com -p my-app
 ```
+
+## Pointing DNS At A VPS Or Hostname
+
+Use `dns point` when Doomain should only reconcile DNS, without adding the domain to Vercel or Clerk. It infers the configured provider account and longest matching zone in the same way as `link`.
+
+Point an apex or subdomain at an IPv4 or IPv6 address:
+
+```bash
+doomain dns point example.com --target 203.0.113.10
+doomain dns point app.example.com --target 2001:db8::10
+```
+
+Point a subdomain at a canonical hostname:
+
+```bash
+doomain dns point app.example.com --target origin.example.net
+```
+
+The record type is inferred as `A`, `AAAA`, or `CNAME`. Use `--type` to require a specific type, `--ttl` to change the default 300-second TTL, and `--provider`/`--account` to override provider inference.
+
+Canonical hostname targets use CNAME records. Doomain rejects an apex CNAME when the selected provider does not advertise apex-CNAME support; use an IPv4 or IPv6 target for that apex instead.
+
+Preview without writing:
+
+```bash
+doomain dns point app.example.com --target 203.0.113.10 --dry-run --json
+```
+
+The preview resolves the provider, account, zone, record name, type, and value without reading or writing current DNS records. Conflicts are checked when a real write is attempted.
+
+By default, a successful write waits up to 300 seconds for public DNS. Use `--no-wait` to return immediately or `--timeout <seconds>` to change the limit. Skipping the wait, a dry run, or reaching the timeout returns `propagated: false`; a propagation timeout does not turn a successful provider write into an error.
+
+Existing exact records are skipped. Conflicting records fail with `DNS_TARGET_CONFLICT` in JSON/non-interactive mode. Use `--force` only after approving replacement of the existing target.
 
 ## Clerk Production Domains
 
@@ -335,6 +375,7 @@ Useful agent-safe commands:
 
 ```bash
 doomain link app.example.com --project my-app --json
+doomain dns point app.example.com --target 203.0.113.10 --json
 doomain providers list --json
 doomain providers status --no-verify --json
 doomain domains find hacktheandes.com --json
@@ -412,6 +453,28 @@ Saves Vercel credentials locally.
 doomain auth vercel --token vercel_token
 doomain auth vercel --token vercel_token --team-id team_123 --json
 ```
+
+### `doomain dns point <domain>`
+
+Points an apex or subdomain at an IPv4 or IPv6 address, or a subdomain at a canonical hostname, using the matching configured DNS provider.
+
+```bash
+doomain dns point example.com --target 203.0.113.10
+doomain dns point app.example.com --target origin.example.net --no-wait --json
+doomain dns point app.example.com --target 203.0.113.10 --provider spaceship --account work --force --json
+```
+
+Common flags:
+
+- `--target <value>`: required IPv4, IPv6, or hostname target.
+- `--type <A|AAAA|CNAME>`: require a record type instead of inferring it.
+- `--provider <id>`, `--account <alias>`: select a configured provider account instead of inferring one.
+- `--ttl <seconds>`: DNS TTL. Default is `300`.
+- `--dry-run`: preview without writing.
+- `--force`: overwrite conflicting DNS records.
+- `--wait`, `--no-wait`: wait for public DNS propagation. Default is `--wait`.
+- `--timeout <seconds>`: propagation wait timeout. Default is `300`.
+- `--json`: output one JSON object.
 
 ### `doomain auth logout vercel`
 

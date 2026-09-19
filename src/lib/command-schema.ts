@@ -29,6 +29,39 @@ export interface CommandSchema {
 
 export const commandSchemas: CommandSchema[] = [
   {
+    name: 'dns point',
+    description: 'Point a DNS name at an IP address or canonical hostname.',
+    examples: [
+      'doomain dns point app.example.com --target 203.0.113.10 --json',
+      'doomain dns point app.example.com --target origin.example.net --dry-run --json',
+      'doomain dns point example.com --target 203.0.113.10 --provider spaceship --account work --force --json',
+    ],
+    agentHint: 'Use this for non-Vercel infrastructure such as a VPS or load balancer. Run without --dry-run unless the user explicitly requests a preview; conflicts fail safely unless --force is explicit.',
+    agentInstructions: [
+      'When a user asks to point a domain at a VPS or hostname, run `doomain dns point <domain> --target <ip-or-hostname> --json`.',
+      'Pass --force only after the user has approved replacing an existing DNS target.',
+    ],
+    agentQuickstart: {
+      doNotPreflight: true,
+      preferredFirstCommand: 'doomain dns point <domain> --target <ip-or-hostname> --json',
+    },
+    mutates: true,
+    safeForAgents: true,
+    flags: [
+      {name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.'},
+      {name: 'domain', type: 'string', description: 'Fully qualified apex or subdomain to point.', required: true},
+      {name: 'target', type: 'string', description: 'IPv4, IPv6, or hostname target.', required: true},
+      {name: 'type', type: 'string', description: 'A, AAAA, or CNAME. Inferred from the target when omitted.'},
+      {name: 'provider', type: 'string', description: 'DNS provider id. Inferred from the target domain when omitted.'},
+      {name: 'account', type: 'string', description: 'DNS provider profile/account alias.'},
+      {name: 'ttl', type: 'integer', description: 'DNS record TTL in seconds.', default: 300},
+      {name: 'dry-run', type: 'boolean', description: 'Preview without writing.'},
+      {name: 'force', type: 'boolean', description: 'Overwrite conflicting DNS records.'},
+      {name: 'wait', type: 'boolean', description: 'Wait for public DNS propagation. Use --no-wait to skip.', default: true},
+      {name: 'timeout', type: 'integer', description: 'DNS propagation wait timeout in seconds.', default: 300},
+    ],
+  },
+  {
     name: 'link',
     description: 'Link a Vercel project to a domain and create DNS records.',
     examples: [
@@ -299,7 +332,7 @@ async function configuredProviders(): Promise<ProviderConnectionStatus[]> {
 }
 
 function withProviderConnections(schema: CommandSchema, providers: ProviderConnectionStatus[]): CommandSchema {
-  if (schema.name !== 'link' && schema.name !== 'clerk domains add') return schema
+  if (schema.name !== 'link' && schema.name !== 'clerk domains add' && schema.name !== 'dns point') return schema
   return {...schema, configuredProviders: providers}
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "doomain",
-  "description": "Configure Vercel and Clerk production domains in seconds",
+  "description": "Configure production domains and DNS records in seconds",
   "version": "0.1.18",
   "author": "Crafter Station",
   "packageManager": "bun@1.3.13",
@@ -63,6 +63,9 @@
       },
       "domains": {
         "description": "Inspect DNS domains"
+      },
+      "dns": {
+        "description": "Manage DNS records"
       },
       "projects": {
         "description": "Inspect Vercel projects"

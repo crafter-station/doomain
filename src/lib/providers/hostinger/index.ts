@@ -103,6 +103,34 @@ function deleteFilter(record: DnsRecord) {
   return {name: record.name, type: record.type}
 }
 
+function sameRecordSet(record: Pick<DnsRecordInput, 'name' | 'type'>, desired: DnsRecordInput): boolean {
+  return record.name === desired.name && record.type === desired.type
+}
+
+function collapseRecordSetWrites(plan: DnsChangePlan): DnsChangePlan {
+  let changes = plan.changes
+
+  for (const desired of plan.desired) {
+    const existing = plan.existing.filter((record) => sameRecordSet(record, desired))
+    if (existing.length === 0) continue
+
+    const rewritesRecordSet = changes.some(
+      (change) =>
+        (change.action === 'delete' && sameRecordSet(change.existing, desired)) ||
+        (change.action === 'update' && sameRecordSet(change.record, desired)),
+    )
+    if (!rewritesRecordSet) continue
+
+    changes = changes.filter((change) => {
+      if (change.action === 'delete') return !sameRecordSet(change.existing, desired)
+      return !sameRecordSet(change.record, desired)
+    })
+    changes.push({action: 'update', existing: existing[0], record: desired})
+  }
+
+  return {...plan, changes}
+}
+
 export class HostingerProvider implements DnsProvider {
   readonly capabilities = capabilities
   readonly id = 'hostinger'
@@ -149,7 +177,8 @@ export class HostingerProvider implements DnsProvider {
   }
 
   async planChanges(zone: DnsZone, desired: DnsRecordInput[], opts: {force?: boolean} = {}): Promise<DnsChangePlan> {
-    return planDnsChanges({desired, existing: await this.listRecords(zone), force: opts.force, providerId: this.id, zone})
+    const plan = planDnsChanges({desired, existing: await this.listRecords(zone), force: opts.force, providerId: this.id, zone})
+    return collapseRecordSetWrites(plan)
   }
 
   async applyChanges(zone: DnsZone, plan: DnsChangePlan): Promise<{applied: DnsChange[]; skipped: DnsRecordInput[]}> {

@@ -74,8 +74,49 @@ describe('schema', () => {
       'projects list',
       'verify',
       'clerk domains add',
+      'dns point',
       'auth clerk',
     ])
+  })
+
+  it('documents agent-safe DNS pointing and provider connection status', async () => {
+    const {stdout} = await runCommand('schema "dns point" --json')
+    const result = JSON.parse(stdout) as {
+      data: {
+        agentHint: string
+        configuredProviders: Array<{configured: boolean; id: string}>
+        flags: Array<{description: string; name: string}>
+        safeForAgents: boolean
+      }
+      ok: boolean
+    }
+
+    expect(result.ok).to.equal(true)
+    expect(result.data.safeForAgents).to.equal(true)
+    expect(result.data.agentHint).to.include('VPS or load balancer')
+    expect(result.data.configuredProviders).to.deep.include({
+      account: 'default',
+      configured: true,
+      default: false,
+      displayName: 'Cloudflare',
+      docsUrl: 'https://developers.cloudflare.com/api/',
+      id: 'cloudflare',
+      isDefaultAccount: true,
+    })
+    expect(result.data.flags.map((flag) => flag.name)).to.include.members([
+      'domain',
+      'target',
+      'type',
+      'provider',
+      'account',
+      'ttl',
+      'dry-run',
+      'force',
+      'wait',
+      'timeout',
+      'json',
+    ])
+    expect(result.data.flags.find((flag) => flag.name === 'wait')?.description).to.include('--no-wait')
   })
 
   it('documents domain provider discovery for agents', async () => {
