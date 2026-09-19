@@ -1,0 +1,1 @@
+bunx --bun @biomejs/biome check --write
