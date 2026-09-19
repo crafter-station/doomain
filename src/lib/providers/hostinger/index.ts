@@ -153,6 +153,7 @@ export class HostingerProvider implements DnsProvider {
       headers: { Authorization: `Bearer ${context.credentials.apiToken}` },
       providerId: this.id,
       signal: context.signal,
+      transportErrorCode: context.transportErrorCode,
     })
   }
 

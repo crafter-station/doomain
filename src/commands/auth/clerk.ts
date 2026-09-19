@@ -53,8 +53,14 @@ export default class AuthClerk extends Command {
       appId = value(appId, 'Missing Clerk application id. Pass --app or set CLERK_APPLICATION_ID.')
       if (!platformApiKey.startsWith('ak_')) throw new Error('Clerk Platform API keys must start with ak_.')
 
-      await runDoomainEffect(createClerkPlatformClient({ platformApiKey }).fetchApplication(appId))
-      await runDoomainEffect(updateConfig((config) => ({ ...config, clerk: { appId, platformApiKey } })))
+      await runDoomainEffect(
+        createClerkPlatformClient({ platformApiKey }, { transportErrorCode: 'CLERK_AUTH_FAILED' }).fetchApplication(
+          appId,
+        ),
+      )
+      await runDoomainEffect(
+        updateConfig((config) => ({ ...config, clerk: { appId, platformApiKey } }), 'CLERK_AUTH_FAILED'),
+      )
       out.result({ clerk: { appId, platformApiKey: maskSecret(platformApiKey) }, configPath: getConfigPath() })
       out.success(`Clerk credentials saved to ${getConfigPath()}.`)
     } catch (error) {

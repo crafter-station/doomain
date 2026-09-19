@@ -1,6 +1,7 @@
 import { Effect } from 'effect'
 
 import type { DoomainEffect } from '../../effect.js'
+import { type DoomainErrorCode, toDoomainError } from '../../errors.js'
 import { ProviderError, providerCodeFromStatus } from './errors.js'
 
 export interface ProviderHttpClientOptions {
@@ -9,6 +10,7 @@ export interface ProviderHttpClientOptions {
   headers?: Record<string, string>
   providerId: string
   signal?: AbortSignal
+  transportErrorCode?: DoomainErrorCode
 }
 
 export interface ProviderRequestOptions extends Omit<RequestInit, 'body'> {
@@ -46,13 +48,7 @@ export class ProviderHttpClient {
             },
             signal: init.signal ?? this.opts.signal ?? signal,
           }),
-        catch: (cause) =>
-          new ProviderError(
-            this.opts.providerId,
-            'PROVIDER_API_ERROR',
-            `${this.opts.providerId} request failed.`,
-            cause,
-          ),
+        catch: (cause) => toDoomainError(cause, this.opts.transportErrorCode ?? 'PROVIDER_API_ERROR'),
       })
 
       const parseJson = Effect.tryPromise(() => response.json()).pipe(Effect.catchAll(() => Effect.succeed(undefined)))

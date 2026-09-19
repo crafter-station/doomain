@@ -85,7 +85,7 @@ export default class ProvidersDisconnect extends Command {
             defaults: Object.keys(defaults).length > 0 ? defaults : undefined,
             providers: Object.keys(providers).length > 0 ? providers : undefined,
           }
-        }),
+        }, 'PROVIDER_NOT_FOUND'),
       )
 
       const overrides = envOverrides(definition)

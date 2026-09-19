@@ -100,6 +100,7 @@ export class SpaceshipProvider implements DnsProvider {
       },
       providerId: this.id,
       signal: context.signal,
+      transportErrorCode: context.transportErrorCode,
     })
   }
 

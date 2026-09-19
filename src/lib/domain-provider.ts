@@ -53,6 +53,7 @@ export interface ResolveProviderTargetInput extends FindDomainProviderInput {
 
 export interface ResolveProviderTargetOptions {
   tolerateProviderAccountErrors?: boolean
+  transportErrorCode?: DoomainErrorCode
 }
 
 export interface ResolvedDnsTarget {
@@ -152,12 +153,13 @@ function searchError(error: unknown): ProviderSearchWarning['error'] {
 function loadProviderZones(
   definition: DnsProviderDefinition,
   account: ProviderAccountRef,
+  transportErrorCode: DoomainErrorCode,
 ): DoomainEffect<{
   candidates: ProviderZoneCandidate[]
   search: ProviderZoneSearchResult
 }> {
   return Effect.gen(function* () {
-    const provider = yield* createProvider(definition.id, { account: account.account })
+    const provider = yield* createProvider(definition.id, { account: account.account, transportErrorCode })
     const zones = yield* provider.listZones()
     return {
       candidates: zones.map((zone) => ({
@@ -178,8 +180,12 @@ function loadProviderZones(
   })
 }
 
-function loadProviderZonesSafely(definition: DnsProviderDefinition, account: ProviderAccountRef) {
-  return loadProviderZones(definition, account).pipe(
+function loadProviderZonesSafely(
+  definition: DnsProviderDefinition,
+  account: ProviderAccountRef,
+  transportErrorCode: DoomainErrorCode,
+) {
+  return loadProviderZones(definition, account, transportErrorCode).pipe(
     Effect.catchAll((error) =>
       Effect.succeed({
         candidates: [],
@@ -232,6 +238,7 @@ function loadConfiguredProviderZones(
   providerId?: string,
   accountInput?: string,
   tolerateProviderAccountErrors = false,
+  transportErrorCode: DoomainErrorCode = 'DOMAIN_PROVIDER_DISCOVERY_FAILED',
 ): DoomainEffect<{
   candidates: ProviderZoneCandidate[]
   accountInferred: boolean
@@ -253,7 +260,9 @@ function loadConfiguredProviderZones(
       const tolerateAccountErrors = tolerateProviderAccountErrors && !account && selectedAccounts.length > 1
       const results = yield* Effect.all(
         selectedAccounts.map((ref) =>
-          tolerateAccountErrors ? loadProviderZonesSafely(definition, ref) : loadProviderZones(definition, ref),
+          tolerateAccountErrors
+            ? loadProviderZonesSafely(definition, ref, transportErrorCode)
+            : loadProviderZones(definition, ref, transportErrorCode),
         ),
         { concurrency: 'unbounded' },
       )
@@ -289,7 +298,9 @@ function loadConfiguredProviderZones(
 
     const results = yield* Effect.all(
       providerAccounts.map(({ definition, ref }) =>
-        tolerateProviderAccountErrors ? loadProviderZonesSafely(definition, ref) : loadProviderZones(definition, ref),
+        tolerateProviderAccountErrors
+          ? loadProviderZonesSafely(definition, ref, transportErrorCode)
+          : loadProviderZones(definition, ref, transportErrorCode),
       ),
       { concurrency: 'unbounded' },
     )
@@ -313,6 +324,7 @@ export function resolveProviderTarget(
       input.provider,
       input.account,
       options.tolerateProviderAccountErrors,
+      options.transportErrorCode,
     )
     const matches = zones.candidates
       .filter((candidate) => zoneMatchesDomain(requested.fullDomain, candidate.zone.name, requested.forceExactZone))

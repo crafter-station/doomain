@@ -17,7 +17,9 @@ export default class ProjectsList extends Command {
     const out = createOutput({ json: flags.json })
 
     try {
-      const vercel = createVercelClient(await runDoomainEffect(resolveVercelConfig()))
+      const vercel = createVercelClient(await runDoomainEffect(resolveVercelConfig()), {
+        transportErrorCode: 'PROJECT_NOT_FOUND',
+      })
       const projects = await runDoomainEffect(vercel.listProjects(flags.search))
       for (const project of projects) out.info(`${project.name} (${project.id})`)
       out.result({ projects })

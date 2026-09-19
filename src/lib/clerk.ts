@@ -2,7 +2,7 @@ import { Effect } from 'effect'
 
 import { loadConfig } from './config.js'
 import type { DoomainEffect } from './effect.js'
-import { DoomainError } from './errors.js'
+import { DoomainError, type DoomainErrorCode, toDoomainError } from './errors.js'
 
 const CLERK_API_URL = 'https://api.clerk.com'
 
@@ -102,7 +102,10 @@ function apiErrorCode(body?: ClerkApiErrorBody): string | undefined {
   return body?.errors?.[0]?.code ?? body?.error?.code ?? body?.code
 }
 
-export function createClerkPlatformClient(config: { platformApiKey: string }) {
+export function createClerkPlatformClient(
+  config: { platformApiKey: string },
+  opts: { transportErrorCode?: DoomainErrorCode } = {},
+) {
   function request<T>(path: string, init: RequestInit = {}): DoomainEffect<T> {
     return Effect.gen(function* () {
       const response = yield* Effect.tryPromise({
@@ -117,7 +120,7 @@ export function createClerkPlatformClient(config: { platformApiKey: string }) {
             },
             signal: init.signal ?? signal,
           }),
-        catch: (cause) => new DoomainError('DOMAIN_LINK_FAILED', 'Clerk API request failed.', cause),
+        catch: (cause) => toDoomainError(cause, opts.transportErrorCode ?? 'DOMAIN_LINK_FAILED'),
       })
       if (!response.ok) {
         const body = yield* Effect.tryPromise(() => response.json()).pipe(

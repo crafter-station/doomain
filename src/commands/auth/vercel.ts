@@ -90,7 +90,9 @@ export default class AuthVercel extends Command {
       if (!out.json && teamId === undefined) {
         const spinner = p.spinner()
         spinner.start('Loading Vercel teams')
-        const teams = await runDoomainEffect(createVercelClient({ token }).listTeams())
+        const teams = await runDoomainEffect(
+          createVercelClient({ token }, { transportErrorCode: 'MISSING_CREDENTIALS' }).listTeams(),
+        )
         spinner.stop(`Loaded ${teams.length} Vercel team${teams.length === 1 ? '' : 's'}`)
 
         const selected = await p.select({
@@ -110,10 +112,13 @@ export default class AuthVercel extends Command {
       }
 
       await runDoomainEffect(
-        updateConfig((config) => ({
-          ...config,
-          vercel: { token, teamId },
-        })),
+        updateConfig(
+          (config) => ({
+            ...config,
+            vercel: { token, teamId },
+          }),
+          'MISSING_CREDENTIALS',
+        ),
       )
 
       out.result({ configPath: getConfigPath(), vercel: { token: maskSecret(token), teamId } })

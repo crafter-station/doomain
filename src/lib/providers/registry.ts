@@ -4,7 +4,7 @@ import { type DoomainEffect, trySync } from '../effect.js'
 import { DoomainError } from '../errors.js'
 import { ensureProviderId } from '../validate.js'
 import { cloudflareProviderDefinition } from './cloudflare/index.js'
-import { createProviderContext } from './core/config.js'
+import { createProviderContext, type ProviderAccountOptions } from './core/config.js'
 import { hostingerProviderDefinition } from './hostinger/index.js'
 import { namecheapProviderDefinition } from './namecheap/index.js'
 import { spaceshipProviderDefinition } from './spaceship/index.js'
@@ -28,7 +28,7 @@ export function getProviderDefinition(id: string): DnsProviderDefinition {
   return definition
 }
 
-export function createProvider(id: string, opts: { account?: string } = {}): DoomainEffect<DnsProvider> {
+export function createProvider(id: string, opts: ProviderAccountOptions = {}): DoomainEffect<DnsProvider> {
   return Effect.gen(function* () {
     const definition = yield* trySync(() => getProviderDefinition(id), 'PROVIDER_NOT_FOUND')
     return definition.create(yield* createProviderContext(definition, opts))

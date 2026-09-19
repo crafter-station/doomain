@@ -23,7 +23,9 @@ export default class ProvidersVerify extends Command {
 
     try {
       const account = normalizeProviderAccount(flags.account)
-      const provider = await runDoomainEffect(createProvider(args.provider, { account }))
+      const provider = await runDoomainEffect(
+        createProvider(args.provider, { account, transportErrorCode: 'PROVIDER_AUTH_FAILED' }),
+      )
       const health = await runDoomainEffect(provider.verifyCredentials())
       out.result({ account, health, isDefaultAccount: isDefaultProviderAccount(account), provider: provider.id })
       out.success(`${provider.name} credentials verified.`)

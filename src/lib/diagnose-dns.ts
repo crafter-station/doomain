@@ -20,7 +20,7 @@ import {
 } from './dns-records.js'
 import { type ResolvedDnsTarget, resolveProviderTarget } from './domain-provider.js'
 import { type DoomainEffect, trySync } from './effect.js'
-import { DoomainError } from './errors.js'
+import { DoomainError, type DoomainErrorCode } from './errors.js'
 import { createProvider } from './providers/registry.js'
 import type { DnsProvider, DnsRecord, DnsRecordInput, DnsRecordType } from './providers/types.js'
 
@@ -75,7 +75,10 @@ export interface DiagnoseDnsResult {
 }
 
 interface DiagnoseDnsDependencies {
-  createProvider: (provider: string, opts: { account?: string }) => DoomainEffect<DnsProvider>
+  createProvider: (
+    provider: string,
+    opts: { account?: string; transportErrorCode?: DoomainErrorCode },
+  ) => DoomainEffect<DnsProvider>
   observeDns: (
     fqdn: string,
     target: Pick<DnsRecordInput, 'type' | 'value'>,
@@ -118,7 +121,11 @@ const defaultDependencies: DiagnoseDnsDependencies = {
   createProvider,
   macOsResolvers: readMacOsResolvers,
   observeDns: (fqdn, target, elapsedMs) => observeDnsRecord(fqdn, target, undefined, elapsedMs),
-  resolveTarget: (input) => resolveProviderTarget(input, { tolerateProviderAccountErrors: true }),
+  resolveTarget: (input) =>
+    resolveProviderTarget(input, {
+      tolerateProviderAccountErrors: true,
+      transportErrorCode: 'DNS_DIAGNOSE_FAILED',
+    }),
 }
 
 function recordConflicts(records: DnsRecord[]): DnsRecordConflict[] {
@@ -181,7 +188,10 @@ export function diagnoseDns(
     const resolved = yield* dependencies
       .resolveTarget(input)
       .pipe(Effect.mapError((error) => diagnosisResolutionError(error, input)))
-    const provider = yield* dependencies.createProvider(resolved.provider, { account: resolved.account })
+    const provider = yield* dependencies.createProvider(resolved.provider, {
+      account: resolved.account,
+      transportErrorCode: 'DNS_DIAGNOSE_FAILED',
+    })
     const zone = yield* provider.getZone(resolved.target.zoneDomain)
     if (!zone) {
       return yield* Effect.fail(

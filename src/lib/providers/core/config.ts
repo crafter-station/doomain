@@ -2,7 +2,7 @@ import { Effect } from 'effect'
 
 import { type DoomainConfig, loadConfig, type ProviderConfig } from '../../config.js'
 import type { DoomainEffect } from '../../effect.js'
-import { DoomainError } from '../../errors.js'
+import { DoomainError, type DoomainErrorCode } from '../../errors.js'
 import { ensureProviderAccount } from '../../validate.js'
 import type { CredentialDefinition, DnsProviderDefinition, ProviderContext } from './types.js'
 
@@ -16,6 +16,7 @@ export interface ProviderAccountRef {
 
 export interface ProviderAccountOptions {
   account?: string
+  transportErrorCode?: DoomainErrorCode
 }
 
 export function normalizeProviderAccount(account?: string): string {
@@ -167,6 +168,6 @@ export function createProviderContext(
       }
     }
 
-    return { credentials, debug: process.env.DOOMAIN_DEBUG === '1' }
+    return { credentials, debug: process.env.DOOMAIN_DEBUG === '1', transportErrorCode: opts.transportErrorCode }
   })
 }

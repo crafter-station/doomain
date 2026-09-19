@@ -21,7 +21,7 @@ export default class AuthLogoutClerk extends Command {
           removed = config.clerk !== undefined
           const { clerk: _clerk, ...next } = config
           return next
-        }),
+        }, 'MISSING_CREDENTIALS'),
       )
 
       const environmentOverrides = ['CLERK_PLATFORM_API_KEY', 'CLERK_APPLICATION_ID'].filter((key) => process.env[key])

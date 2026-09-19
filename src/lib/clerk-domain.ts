@@ -155,8 +155,14 @@ export function addClerkProductionDomain(input: AddClerkDomainInput): DoomainEff
       )
 
     input.progress?.('Finding the DNS provider and zone')
-    const resolved = yield* resolveProviderTarget({ account: input.account, domain, provider: input.provider })
-    const provider = yield* createProvider(resolved.provider, { account: resolved.account })
+    const resolved = yield* resolveProviderTarget(
+      { account: input.account, domain, provider: input.provider },
+      { transportErrorCode: 'DOMAIN_LINK_FAILED' },
+    )
+    const provider = yield* createProvider(resolved.provider, {
+      account: resolved.account,
+      transportErrorCode: 'DOMAIN_LINK_FAILED',
+    })
     const zone = yield* provider.getZone(resolved.target.zoneDomain)
     if (!zone)
       return yield* Effect.fail(

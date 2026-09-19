@@ -540,7 +540,7 @@ export function createLinkPlan(input: LinkDomainInput): DoomainEffect<LinkDomain
   return Effect.gen(function* () {
     const domain = yield* resolveConfiguredDomain(input.domain)
     const project = yield* resolveProject(input.project)
-    const resolved = yield* resolveProviderTarget({ ...input, domain })
+    const resolved = yield* resolveProviderTarget({ ...input, domain }, { transportErrorCode: 'DOMAIN_LINK_FAILED' })
     const { account, accountInferred, isDefaultAccount, provider, providerInferred, target } = resolved
     const record = planBaseRecord({ isApex: target.isApex, provider, recordName: target.recordName })
 
@@ -577,7 +577,10 @@ export function linkDomain(input: LinkDomainInput): DoomainEffect<LinkDomainResu
     }
 
     const vercel = createVercelClient(yield* resolveVercelConfig())
-    const provider = yield* createProvider(plan.provider, { account: plan.account })
+    const provider = yield* createProvider(plan.provider, {
+      account: plan.account,
+      transportErrorCode: 'DOMAIN_LINK_FAILED',
+    })
     reportProgress(input, 'dns:resolve-zone', `Finding ${provider.name} DNS zone`)
     const zone = yield* resolveZone(provider, plan.zoneDomain)
     reportProgress(input, 'vercel:get-target', 'Reading Vercel DNS target')

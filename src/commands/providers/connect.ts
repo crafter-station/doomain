@@ -5,6 +5,7 @@ import { getConfigPath, loadConfig, maskSecret, updateConfig } from '../../lib/c
 import { runDoomainEffect } from '../../lib/effect.js'
 import { accountFlag, jsonFlag } from '../../lib/flags.js'
 import { createOutput, outputError } from '../../lib/output.js'
+import { fetchPublicIp } from '../../lib/public-ip.js'
 import {
   DEFAULT_PROVIDER_ACCOUNT,
   isDefaultProviderAccount,
@@ -36,22 +37,6 @@ function legacyFlagValue(flags: Record<string, unknown>, credential: CredentialD
   const key = credential.key.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`)
   const value = flags[key]
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
-}
-
-async function fetchPublicIp(): Promise<string | undefined> {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 2000)
-
-  try {
-    const response = await fetch('https://api.ipify.org', { signal: controller.signal })
-    if (!response.ok) return undefined
-    const ip = (await response.text()).trim()
-    return ip || undefined
-  } catch {
-    return undefined
-  } finally {
-    clearTimeout(timeout)
-  }
 }
 
 function credentialInitialValue(credential: CredentialDefinition, detectedPublicIp?: string): string | undefined {
@@ -178,7 +163,8 @@ export default class ProvidersConnect extends Command {
 
       const passedCredentials = parseCredentialFlags(flags.credential)
       const credentials: Record<string, string> = {}
-      const detectedPublicIp = !out.json && usesClientIp(definition) ? await fetchPublicIp() : undefined
+      const detectedPublicIp =
+        !out.json && usesClientIp(definition) ? await runDoomainEffect(fetchPublicIp()) : undefined
 
       if (!out.json) showSetupGuide(definition, detectedPublicIp)
 
@@ -221,7 +207,13 @@ export default class ProvidersConnect extends Command {
         spinner = out.json ? undefined : out.spinner()
         spinner?.start(`Verifying ${definition.displayName} credentials`)
         const zones = await runDoomainEffect(
-          definition.create({ credentials, debug: process.env.DOOMAIN_DEBUG === '1' }).listZones(),
+          definition
+            .create({
+              credentials,
+              debug: process.env.DOOMAIN_DEBUG === '1',
+              transportErrorCode: 'MISSING_CREDENTIALS',
+            })
+            .listZones(),
         )
         domainCount = zones.length
         spinner?.stop(
@@ -245,14 +237,17 @@ export default class ProvidersConnect extends Command {
       }
 
       await runDoomainEffect(
-        updateConfig((config) => ({
-          ...config,
-          defaults: setDefault ? { ...config.defaults, provider: definition.id } : config.defaults,
-          providers: {
-            ...config.providers,
-            [definition.id]: withProviderAccountCredentials(config.providers?.[definition.id], account, credentials),
-          },
-        })),
+        updateConfig(
+          (config) => ({
+            ...config,
+            defaults: setDefault ? { ...config.defaults, provider: definition.id } : config.defaults,
+            providers: {
+              ...config.providers,
+              [definition.id]: withProviderAccountCredentials(config.providers?.[definition.id], account, credentials),
+            },
+          }),
+          'MISSING_CREDENTIALS',
+        ),
       )
 
       out.result({

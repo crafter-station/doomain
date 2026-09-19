@@ -1,5 +1,6 @@
 import { expect } from 'chai'
 
+import { DoomainError } from '../../src/lib/errors.js'
 import { createProvider } from '../../src/lib/providers/registry.js'
 import { promiseProvider, runEffect } from '../helpers/effect.js'
 
@@ -46,6 +47,24 @@ describe('cloudflare provider', () => {
       { id: 'zone_1', metadata: { cloudflare: { id: 'zone_1', name: 'example.com' } }, name: 'example.com' },
       { id: 'zone_2', metadata: { cloudflare: { id: 'zone_2', name: 'example.org' } }, name: 'example.org' },
     ])
+  })
+
+  it('uses the caller transport error code for network failures', async () => {
+    globalThis.fetch = (async () => {
+      throw new Error('network unavailable')
+    }) as typeof fetch
+    const provider = promiseProvider(
+      await runEffect(createProvider('cloudflare', { transportErrorCode: 'DNS_POINT_FAILED' })),
+    )
+
+    try {
+      await provider.listZones()
+      throw new Error('Expected listZones to fail')
+    } catch (error) {
+      expect(error).to.be.instanceOf(DoomainError)
+      expect((error as DoomainError).code).to.equal('DNS_POINT_FAILED')
+      expect((error as Error).message).to.equal('network unavailable')
+    }
   })
 
   it('lists DNS records with relative names', async () => {

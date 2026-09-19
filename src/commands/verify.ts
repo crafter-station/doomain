@@ -26,7 +26,9 @@ export default class Verify extends Command {
       const target = resolveDomainTarget({ domain: flags.domain, subdomain: flags.subdomain, apex: flags.apex })
       const project = flags.project ?? detectLocalVercelProject()?.projectId
       if (!project) throw new Error('Missing --project and no local .vercel/project.json was found.')
-      const vercel = createVercelClient(await runDoomainEffect(resolveVercelConfig()))
+      const vercel = createVercelClient(await runDoomainEffect(resolveVercelConfig()), {
+        transportErrorCode: 'DOMAIN_VERIFY_FAILED',
+      })
       const result = await runDoomainEffect(vercel.verifyProjectDomain(project, target.fullDomain))
       out.result({ project, domain: target.fullDomain, vercel: result })
       out.success(`Verification requested for ${target.fullDomain}.`)

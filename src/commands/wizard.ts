@@ -1,13 +1,15 @@
 import * as p from '@clack/prompts'
 import { Command } from '@oclif/core'
+import { Effect } from 'effect'
 
 import { type DoomainConfig, loadConfig, maskSecret, updateConfig } from '../lib/config.js'
-import { runDoomainEffect } from '../lib/effect.js'
+import { type DoomainEffect, runDoomainEffect } from '../lib/effect.js'
 import { DoomainError } from '../lib/errors.js'
 import { jsonFlag } from '../lib/flags.js'
 import { createLinkPlan, type DnsOverrideWarning, linkDomain } from '../lib/link-domain.js'
 import { detectLocalVercelProject } from '../lib/local-vercel.js'
 import { createOutput, outputError } from '../lib/output.js'
+import { fetchPublicIp } from '../lib/public-ip.js'
 import {
   DEFAULT_PROVIDER_ACCOUNT,
   isDefaultProviderAccount,
@@ -86,29 +88,17 @@ interface ProviderDomainOption {
   providerName: string
 }
 
-async function fetchPublicIp(): Promise<string | undefined> {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 2000)
-
-  try {
-    const response = await fetch('https://api.ipify.org', { signal: controller.signal })
-    if (!response.ok) return undefined
-    const ip = (await response.text()).trim()
-    return ip || undefined
-  } catch {
-    return undefined
-  } finally {
-    clearTimeout(timeout)
-  }
-}
-
-async function credentialInitialValue(credential: CredentialDefinition): Promise<string | undefined> {
+function credentialInitialValue(credential: CredentialDefinition, detectedPublicIp?: string): string | undefined {
   if (credential.key !== 'clientIp') return undefined
-  return fetchPublicIp()
+  return detectedPublicIp
 }
 
-async function promptCredential(credential: CredentialDefinition): Promise<string | null> {
-  const initialValue = credential.secret ? undefined : await credentialInitialValue(credential)
+function usesClientIp(definition: DnsProviderDefinition): boolean {
+  return definition.credentials.some((credential) => credential.key === 'clientIp')
+}
+
+async function promptCredential(credential: CredentialDefinition, detectedPublicIp?: string): Promise<string | null> {
+  const initialValue = credential.secret ? undefined : credentialInitialValue(credential, detectedPublicIp)
   const value = credential.secret
     ? await p.password({ message: credential.label })
     : await p.text({ message: credential.label, initialValue, placeholder: credential.placeholder ?? credential.hint })
@@ -116,12 +106,15 @@ async function promptCredential(credential: CredentialDefinition): Promise<strin
   return typeof resolved === 'string' && resolved.trim() ? resolved.trim() : null
 }
 
-async function promptProviderCredentials(definition: DnsProviderDefinition): Promise<Record<string, string> | null> {
+async function promptProviderCredentials(
+  definition: DnsProviderDefinition,
+  detectedPublicIp?: string,
+): Promise<Record<string, string> | null> {
   const credentials: Record<string, string> = {}
 
   for (const credential of definition.credentials) {
     if (credential.required === false) continue
-    const value = await promptCredential(credential)
+    const value = await promptCredential(credential, detectedPublicIp)
     if (!value) return null
     credentials[credential.key] = value
   }
@@ -151,13 +144,18 @@ function showProviderSetup(definition: DnsProviderDefinition): void {
   p.note(definition.setup.notes.join('\n'), `${definition.displayName} setup`)
 }
 
-async function listProviderDomainOptions(
+function listProviderDomainOptions(
   definition: DnsProviderDefinition,
   account: ProviderAccountRef,
-): Promise<ProviderDomainOption[]> {
-  const provider = await runDoomainEffect(createProvider(definition.id, { account: account.account }))
-  const zones = await runDoomainEffect(provider.listZones())
-  return zones.map((zone) => toProviderDomainOption(definition, account, zone))
+): DoomainEffect<ProviderDomainOption[]> {
+  return Effect.gen(function* () {
+    const provider = yield* createProvider(definition.id, {
+      account: account.account,
+      transportErrorCode: 'DOMAIN_LINK_FAILED',
+    })
+    const zones = yield* provider.listZones()
+    return zones.map((zone) => toProviderDomainOption(definition, account, zone))
+  })
 }
 
 function toProviderDomainOption(
@@ -407,13 +405,18 @@ export default class Wizard extends Command {
           isDefaultAccount: isDefaultProviderAccount(account),
           providerId: selectedDefinition.id,
         }
-        const credentials = await promptProviderCredentials(selectedDefinition)
+        const detectedPublicIp = usesClientIp(selectedDefinition) ? await runDoomainEffect(fetchPublicIp()) : undefined
+        const credentials = await promptProviderCredentials(selectedDefinition, detectedPublicIp)
         if (!credentials) return
 
         const domainSpinner = p.spinner()
         activeSpinner = domainSpinner
         domainSpinner.start(`Verifying ${selectedDefinition.displayName} credentials and loading domains`)
-        const provider = selectedDefinition.create({ credentials, debug: process.env.DOOMAIN_DEBUG === '1' })
+        const provider = selectedDefinition.create({
+          credentials,
+          debug: process.env.DOOMAIN_DEBUG === '1',
+          transportErrorCode: 'DOMAIN_LINK_FAILED',
+        })
         const zones = await runDoomainEffect(provider.listZones())
         domainSpinner.stop(
           `Connected ${selectedDefinition.displayName} and loaded ${zones.length} domain${zones.length === 1 ? '' : 's'}`,
@@ -422,19 +425,22 @@ export default class Wizard extends Command {
         domainOptions.push(...zones.map((zone) => toProviderDomainOption(selectedDefinition, providerAccount, zone)))
 
         await runDoomainEffect(
-          updateConfig((current) => ({
-            ...current,
-            defaults: { ...current.defaults, provider: selectedDefinition.id },
-            providers: {
-              ...current.providers,
-              [selectedDefinition.id]: withProviderAccountCredentials(
-                current.providers?.[selectedDefinition.id],
-                account,
-                credentials,
-              ),
-            },
-            vercel: { token: vercelToken, teamId: vercelTeamId },
-          })),
+          updateConfig(
+            (current) => ({
+              ...current,
+              defaults: { ...current.defaults, provider: selectedDefinition.id },
+              providers: {
+                ...current.providers,
+                [selectedDefinition.id]: withProviderAccountCredentials(
+                  current.providers?.[selectedDefinition.id],
+                  account,
+                  credentials,
+                ),
+              },
+              vercel: { token: vercelToken, teamId: vercelTeamId },
+            }),
+            'DOMAIN_LINK_FAILED',
+          ),
         )
       } else {
         const domainSpinner = p.spinner()
@@ -445,7 +451,7 @@ export default class Wizard extends Command {
 
         for (const { account, definition } of configuredProviderAccounts) {
           try {
-            domainOptions.push(...(await listProviderDomainOptions(definition, account)))
+            domainOptions.push(...(await runDoomainEffect(listProviderDomainOptions(definition, account))))
           } catch (error) {
             const label = account.isDefaultAccount
               ? definition.displayName
@@ -459,10 +465,13 @@ export default class Wizard extends Command {
         for (const failure of providerFailures) p.log.warning(failure)
 
         await runDoomainEffect(
-          updateConfig((current) => ({
-            ...current,
-            vercel: { token: vercelToken, teamId: vercelTeamId },
-          })),
+          updateConfig(
+            (current) => ({
+              ...current,
+              vercel: { token: vercelToken, teamId: vercelTeamId },
+            }),
+            'DOMAIN_LINK_FAILED',
+          ),
         )
       }
 
@@ -503,10 +512,13 @@ export default class Wizard extends Command {
       const domain = selectedDomain.domain
 
       await runDoomainEffect(
-        updateConfig((current) => ({
-          ...current,
-          defaults: { ...current.defaults, domain, provider: selectedDomain.providerId },
-        })),
+        updateConfig(
+          (current) => ({
+            ...current,
+            defaults: { ...current.defaults, domain, provider: selectedDomain.providerId },
+          }),
+          'DOMAIN_LINK_FAILED',
+        ),
       )
 
       const mode = await p.select({

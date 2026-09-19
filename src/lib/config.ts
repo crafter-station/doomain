@@ -3,8 +3,8 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { Effect } from 'effect'
 
-import type { DoomainEffect } from './effect.js'
-import { DoomainError } from './errors.js'
+import { type DoomainEffect, trySync } from './effect.js'
+import { type DoomainErrorCode, toDoomainError } from './errors.js'
 
 export function getConfigDir(): string {
   return process.env.DOOMAIN_CONFIG_DIR || join(homedir(), '.doomain')
@@ -63,24 +63,31 @@ export function loadConfig(): DoomainEffect<DoomainConfig, never> {
   )
 }
 
-export function saveConfig(config: DoomainConfig): DoomainEffect<void> {
+export function saveConfig(
+  config: DoomainConfig,
+  errorCode: DoomainErrorCode = 'CONFIG_NOT_FOUND',
+): DoomainEffect<void> {
   return Effect.gen(function* () {
     const configFile = getConfigFile()
     yield* Effect.tryPromise({
       try: () => mkdir(dirname(configFile), { recursive: true }),
-      catch: (cause) => new DoomainError('CONFIG_NOT_FOUND', `Unable to create the config directory: ${String(cause)}`),
+      catch: (cause) => toDoomainError(cause, errorCode),
     })
     yield* Effect.tryPromise({
       try: () => writeFile(configFile, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 }),
-      catch: (cause) => new DoomainError('CONFIG_NOT_FOUND', `Unable to write the config file: ${String(cause)}`),
+      catch: (cause) => toDoomainError(cause, errorCode),
     })
   })
 }
 
-export function updateConfig(updater: (config: DoomainConfig) => DoomainConfig): DoomainEffect<DoomainConfig> {
+export function updateConfig(
+  updater: (config: DoomainConfig) => DoomainConfig,
+  errorCode: DoomainErrorCode = 'CONFIG_NOT_FOUND',
+): DoomainEffect<DoomainConfig> {
   return Effect.gen(function* () {
-    const next = updater(yield* loadConfig())
-    yield* saveConfig(next)
+    const current = yield* loadConfig()
+    const next = yield* trySync(() => updater(current), errorCode)
+    yield* saveConfig(next, errorCode)
     return next
   })
 }

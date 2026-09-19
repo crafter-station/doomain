@@ -30,7 +30,7 @@ export default class AuthLogoutVercel extends Command {
           removed = config.vercel !== undefined
           const { vercel: _vercel, ...next } = config
           return next
-        }),
+        }, 'MISSING_CREDENTIALS'),
       )
 
       const overrides = envOverrides()

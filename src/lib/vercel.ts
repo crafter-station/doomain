@@ -2,7 +2,7 @@ import { Effect } from 'effect'
 
 import { loadConfig } from './config.js'
 import type { DoomainEffect } from './effect.js'
-import { DoomainError } from './errors.js'
+import { DoomainError, type DoomainErrorCode, toDoomainError } from './errors.js'
 import { listGlobalVercelTokens } from './vercel-auth.js'
 
 const VERCEL_API_URL = 'https://api.vercel.com'
@@ -134,7 +134,7 @@ function findProjectDomainTarget(raw: unknown, domain: string): unknown {
   )
 }
 
-export function createVercelClient(config: VercelConfig) {
+export function createVercelClient(config: VercelConfig, clientOpts: { transportErrorCode?: DoomainErrorCode } = {}) {
   function request<T>(path: string, init: RequestInit = {}, opts: { team?: boolean } = {}): DoomainEffect<T> {
     return Effect.gen(function* () {
       const response = yield* Effect.tryPromise({
@@ -148,7 +148,7 @@ export function createVercelClient(config: VercelConfig) {
             },
             signal: init.signal ?? signal,
           }),
-        catch: (cause) => new DoomainError('DOMAIN_LINK_FAILED', 'Vercel API request failed.', cause),
+        catch: (cause) => toDoomainError(cause, clientOpts.transportErrorCode ?? 'DOMAIN_LINK_FAILED'),
       })
       const body = yield* Effect.tryPromise(() => response.json()).pipe(
         Effect.catchAll(() => Effect.succeed(undefined)),

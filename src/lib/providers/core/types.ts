@@ -1,4 +1,5 @@
 import type { DoomainEffect } from '../../effect.js'
+import type { DoomainErrorCode } from '../../errors.js'
 
 export type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT'
 
@@ -102,6 +103,7 @@ export interface ProviderContext {
   credentials: Record<string, string>
   debug?: boolean
   signal?: AbortSignal
+  transportErrorCode?: DoomainErrorCode
 }
 
 export interface DnsProvider {

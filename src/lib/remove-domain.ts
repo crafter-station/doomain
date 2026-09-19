@@ -4,7 +4,7 @@ import { reconcileRecordRemoval } from './dns-reconciliation.js'
 import { type DnsRecordSelector, recordMatchesSelector } from './dns-records.js'
 import { type ResolvedDnsTarget, resolveProviderTarget } from './domain-provider.js'
 import { type DoomainEffect, tryPromise } from './effect.js'
-import { DoomainError } from './errors.js'
+import { DoomainError, type DoomainErrorCode } from './errors.js'
 import { createProvider } from './providers/registry.js'
 import type { DnsChangePlan, DnsProvider, DnsRecord, DnsRecordType } from './providers/types.js'
 
@@ -38,11 +38,17 @@ export interface RemoveDomainResult {
 }
 
 interface RemoveDomainDependencies {
-  createProvider: (provider: string, opts: { account?: string }) => DoomainEffect<DnsProvider>
+  createProvider: (
+    provider: string,
+    opts: { account?: string; transportErrorCode?: DoomainErrorCode },
+  ) => DoomainEffect<DnsProvider>
   resolveTarget: (input: Pick<RemoveDomainInput, 'account' | 'domain' | 'provider'>) => DoomainEffect<ResolvedDnsTarget>
 }
 
-const defaultDependencies: RemoveDomainDependencies = { createProvider, resolveTarget: resolveProviderTarget }
+const defaultDependencies: RemoveDomainDependencies = {
+  createProvider,
+  resolveTarget: (input) => resolveProviderTarget(input, { transportErrorCode: 'DNS_REMOVE_FAILED' }),
+}
 
 function quoteCommandArgument(value: string): string {
   return /^[a-zA-Z0-9_./:@+-]+$/.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`
@@ -99,7 +105,10 @@ export function removeDomain(
     const resolved = yield* dependencies
       .resolveTarget(input)
       .pipe(Effect.mapError((error) => removalResolutionError(error, input)))
-    const provider = yield* dependencies.createProvider(resolved.provider, { account: resolved.account })
+    const provider = yield* dependencies.createProvider(resolved.provider, {
+      account: resolved.account,
+      transportErrorCode: 'DNS_REMOVE_FAILED',
+    })
     if (!provider.capabilities.recordTypes.includes(input.recordType)) {
       return yield* Effect.fail(
         new DoomainError(

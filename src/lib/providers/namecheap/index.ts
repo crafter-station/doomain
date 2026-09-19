@@ -2,6 +2,7 @@ import { Effect } from 'effect'
 import { XMLParser } from 'fast-xml-parser'
 
 import { type DoomainEffect, trySync } from '../../effect.js'
+import { type DoomainErrorCode, toDoomainError } from '../../errors.js'
 import { normalizeDomain } from '../../validate.js'
 import { ProviderError } from '../core/errors.js'
 import { assertNoConflicts, planDnsChanges } from '../core/planner.js'
@@ -181,6 +182,7 @@ export class NamecheapProvider implements DnsProvider {
   private readonly apiUser: string
   private readonly baseUrl: string
   private readonly clientIp: string
+  private readonly transportErrorCode: DoomainErrorCode
   private readonly username: string
 
   constructor(context: ProviderContext) {
@@ -189,6 +191,7 @@ export class NamecheapProvider implements DnsProvider {
     this.username = context.credentials.username || context.credentials.apiUser
     this.clientIp = context.credentials.clientIp
     this.baseUrl = bool(context.credentials.sandbox) ? NAMECHEAP_SANDBOX_URL : NAMECHEAP_PRODUCTION_URL
+    this.transportErrorCode = context.transportErrorCode ?? 'PROVIDER_API_ERROR'
   }
 
   verifyCredentials(): DoomainEffect<ProviderHealth> {
@@ -351,7 +354,7 @@ export class NamecheapProvider implements DnsProvider {
               : {}),
             signal,
           }),
-        catch: (cause) => new ProviderError('namecheap', 'PROVIDER_API_ERROR', 'Namecheap API request failed.', cause),
+        catch: (cause) => toDoomainError(cause, this.transportErrorCode),
       })
 
       if (!response.ok) {

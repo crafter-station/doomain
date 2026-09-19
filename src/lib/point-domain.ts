@@ -5,7 +5,7 @@ import { reconcileDesiredRecord } from './dns-reconciliation.js'
 import { inferAddressRecordType, normalizeAddressRecordTarget } from './dns-records.js'
 import { type ResolvedDnsTarget, resolveProviderTarget } from './domain-provider.js'
 import { type DoomainEffect, tryPromise, trySync } from './effect.js'
-import { DoomainError } from './errors.js'
+import { DoomainError, type DoomainErrorCode } from './errors.js'
 import { type DnsOverrideWarning, withProviderRecordOptions } from './link-domain.js'
 import { createProvider } from './providers/registry.js'
 import type { DnsProvider, DnsRecordInput } from './providers/types.js'
@@ -47,7 +47,10 @@ export interface PointDomainResult {
 }
 
 interface PointDomainDependencies {
-  createProvider: (provider: string, opts: { account?: string }) => DoomainEffect<DnsProvider>
+  createProvider: (
+    provider: string,
+    opts: { account?: string; transportErrorCode?: DoomainErrorCode },
+  ) => DoomainEffect<DnsProvider>
   observeDns?: (
     fqdn: string,
     target: Pick<DnsRecordInput, 'type' | 'value'>,
@@ -58,7 +61,7 @@ interface PointDomainDependencies {
 
 const defaultDependencies: PointDomainDependencies = {
   createProvider,
-  resolveTarget: resolveProviderTarget,
+  resolveTarget: (input) => resolveProviderTarget(input, { transportErrorCode: 'DNS_POINT_FAILED' }),
 }
 
 export function createPointRecord(input: {
@@ -174,7 +177,10 @@ export function pointDomain(
         }),
       'INVALID_INPUT',
     )
-    const provider = yield* dependencies.createProvider(resolved.provider, { account: resolved.account })
+    const provider = yield* dependencies.createProvider(resolved.provider, {
+      account: resolved.account,
+      transportErrorCode: 'DNS_POINT_FAILED',
+    })
     yield* trySync(() => validateTtl(provider, record.ttl), 'INVALID_INPUT')
     if (!provider.capabilities.recordTypes.includes(record.type)) {
       return yield* Effect.fail(
