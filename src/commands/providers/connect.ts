@@ -5,7 +5,6 @@ import { getConfigPath, loadConfig, maskSecret, updateConfig } from '../../lib/c
 import { runDoomainEffect } from '../../lib/effect.js'
 import { accountFlag, jsonFlag } from '../../lib/flags.js'
 import { createOutput, outputError } from '../../lib/output.js'
-import { fetchPublicIp } from '../../lib/public-ip.js'
 import {
   DEFAULT_PROVIDER_ACCOUNT,
   isDefaultProviderAccount,
@@ -16,6 +15,7 @@ import {
 } from '../../lib/providers/core/config.js'
 import { getProviderDefinition, listProviderDefinitions } from '../../lib/providers/registry.js'
 import type { CredentialDefinition, DnsProviderDefinition } from '../../lib/providers/types.js'
+import { fetchPublicIp } from '../../lib/public-ip.js'
 
 function requireString(value: unknown, message: string): string {
   if (typeof value === 'string' && value.trim()) return value.trim()

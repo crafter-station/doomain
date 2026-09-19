@@ -9,7 +9,6 @@ import { jsonFlag } from '../lib/flags.js'
 import { createLinkPlan, type DnsOverrideWarning, linkDomain } from '../lib/link-domain.js'
 import { detectLocalVercelProject } from '../lib/local-vercel.js'
 import { createOutput, outputError } from '../lib/output.js'
-import { fetchPublicIp } from '../lib/public-ip.js'
 import {
   DEFAULT_PROVIDER_ACCOUNT,
   isDefaultProviderAccount,
@@ -21,6 +20,7 @@ import {
 } from '../lib/providers/core/config.js'
 import { createProvider, getProviderDefinition, listProviderDefinitions } from '../lib/providers/registry.js'
 import type { CredentialDefinition, DnsProviderDefinition, DnsRecordInput, DnsZone } from '../lib/providers/types.js'
+import { fetchPublicIp } from '../lib/public-ip.js'
 import { createVercelClient, type VercelTeam } from '../lib/vercel.js'
 import { type GlobalVercelToken, listGlobalVercelTokens } from '../lib/vercel-auth.js'
 
