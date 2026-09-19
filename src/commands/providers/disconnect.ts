@@ -1,6 +1,7 @@
 import { Args, Command } from '@oclif/core'
 
 import { getConfigPath, updateConfig } from '../../lib/config.js'
+import { runDoomainEffect } from '../../lib/effect.js'
 import { accountFlag, jsonFlag } from '../../lib/flags.js'
 import { createOutput, outputError } from '../../lib/output.js'
 import { isDefaultProviderAccount, normalizeProviderAccount } from '../../lib/providers/core/config.js'
@@ -38,52 +39,54 @@ export default class ProvidersDisconnect extends Command {
       const account = flags.account ? normalizeProviderAccount(flags.account) : undefined
       let removed = false
 
-      await updateConfig((config) => {
-        const providers = { ...config.providers }
-        const provider = providers[definition.id]
+      await runDoomainEffect(
+        updateConfig((config) => {
+          const providers = { ...config.providers }
+          const provider = providers[definition.id]
 
-        if (!account) {
-          removed = provider !== undefined
-          delete providers[definition.id]
-        } else if (provider) {
-          const nextProvider = { ...provider }
-          if (isDefaultProviderAccount(account)) {
-            removed =
-              nextProvider.credentials !== undefined ||
-              (definition.id === 'spaceship' && ('apiKey' in nextProvider || 'apiSecret' in nextProvider))
-            delete nextProvider.credentials
-            if (definition.id === 'spaceship') {
-              delete (nextProvider as Record<string, unknown>).apiKey
-              delete (nextProvider as Record<string, unknown>).apiSecret
-              delete (nextProvider as Record<string, unknown>).domains
-            }
-          } else {
-            const accounts = { ...nextProvider.accounts }
-            removed = accounts[account] !== undefined
-            delete accounts[account]
-            nextProvider.accounts = Object.keys(accounts).length > 0 ? accounts : undefined
-          }
-
-          if (
-            nextProvider.credentials ||
-            nextProvider.settings ||
-            (nextProvider.accounts && Object.keys(nextProvider.accounts).length > 0)
-          ) {
-            providers[definition.id] = nextProvider
-          } else {
+          if (!account) {
+            removed = provider !== undefined
             delete providers[definition.id]
+          } else if (provider) {
+            const nextProvider = { ...provider }
+            if (isDefaultProviderAccount(account)) {
+              removed =
+                nextProvider.credentials !== undefined ||
+                (definition.id === 'spaceship' && ('apiKey' in nextProvider || 'apiSecret' in nextProvider))
+              delete nextProvider.credentials
+              if (definition.id === 'spaceship') {
+                delete (nextProvider as Record<string, unknown>).apiKey
+                delete (nextProvider as Record<string, unknown>).apiSecret
+                delete (nextProvider as Record<string, unknown>).domains
+              }
+            } else {
+              const accounts = { ...nextProvider.accounts }
+              removed = accounts[account] !== undefined
+              delete accounts[account]
+              nextProvider.accounts = Object.keys(accounts).length > 0 ? accounts : undefined
+            }
+
+            if (
+              nextProvider.credentials ||
+              nextProvider.settings ||
+              (nextProvider.accounts && Object.keys(nextProvider.accounts).length > 0)
+            ) {
+              providers[definition.id] = nextProvider
+            } else {
+              delete providers[definition.id]
+            }
           }
-        }
 
-        const defaults = { ...config.defaults }
-        if (defaults.provider === definition.id && providers[definition.id] === undefined) delete defaults.provider
+          const defaults = { ...config.defaults }
+          if (defaults.provider === definition.id && providers[definition.id] === undefined) delete defaults.provider
 
-        return {
-          ...config,
-          defaults: Object.keys(defaults).length > 0 ? defaults : undefined,
-          providers: Object.keys(providers).length > 0 ? providers : undefined,
-        }
-      })
+          return {
+            ...config,
+            defaults: Object.keys(defaults).length > 0 ? defaults : undefined,
+            providers: Object.keys(providers).length > 0 ? providers : undefined,
+          }
+        }),
+      )
 
       const overrides = envOverrides(definition)
       out.result({

@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { expect } from 'chai'
 
 import { getVercelCliAuthFiles, listGlobalVercelTokens } from '../../src/lib/vercel-auth.js'
+import { runEffect } from '../helpers/effect.js'
 
 describe('listGlobalVercelTokens', () => {
   let dir: string
@@ -22,7 +23,7 @@ describe('listGlobalVercelTokens', () => {
     mkdirSync(join(dir, '.vercel'), { recursive: true })
     writeFileSync(authFile, JSON.stringify({ token: 'cli_token' }))
 
-    const tokens = await listGlobalVercelTokens({ authFile, env: {} })
+    const tokens = await runEffect(listGlobalVercelTokens({ authFile, env: {} }))
 
     expect(tokens).to.deep.equal([{ authFile, label: 'Vercel CLI', source: 'vercel-cli', token: 'cli_token' }])
   })
@@ -32,7 +33,7 @@ describe('listGlobalVercelTokens', () => {
     mkdirSync(join(dir, '.vercel'), { recursive: true })
     writeFileSync(authFile, JSON.stringify({ token: 'cli_token' }))
 
-    const tokens = await listGlobalVercelTokens({ authFile, env: { VERCEL_TOKEN: 'env_token' } })
+    const tokens = await runEffect(listGlobalVercelTokens({ authFile, env: { VERCEL_TOKEN: 'env_token' } }))
 
     expect(tokens).to.deep.equal([
       { label: 'VERCEL_TOKEN', source: 'environment', token: 'env_token' },

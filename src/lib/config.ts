@@ -1,6 +1,10 @@
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { Effect } from 'effect'
+
+import type { DoomainEffect } from './effect.js'
+import { DoomainError } from './errors.js'
 
 export function getConfigDir(): string {
   return process.env.DOOMAIN_CONFIG_DIR || join(homedir(), '.doomain')
@@ -52,34 +56,40 @@ export interface DoomainConfig {
   }
 }
 
-export async function loadConfig(): Promise<DoomainConfig> {
-  try {
-    const data = await readFile(getConfigFile(), 'utf8')
-    return JSON.parse(data) as DoomainConfig
-  } catch {
-    return {}
-  }
+export function loadConfig(): DoomainEffect<DoomainConfig, never> {
+  return Effect.tryPromise(() => readFile(getConfigFile(), 'utf8')).pipe(
+    Effect.flatMap((data) => Effect.try(() => JSON.parse(data) as DoomainConfig)),
+    Effect.catchAll(() => Effect.succeed({})),
+  )
 }
 
-export async function saveConfig(config: DoomainConfig): Promise<void> {
-  const configFile = getConfigFile()
-  await mkdir(dirname(configFile), { recursive: true })
-  await writeFile(configFile, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 })
+export function saveConfig(config: DoomainConfig): DoomainEffect<void> {
+  return Effect.gen(function* () {
+    const configFile = getConfigFile()
+    yield* Effect.tryPromise({
+      try: () => mkdir(dirname(configFile), { recursive: true }),
+      catch: (cause) => new DoomainError('CONFIG_NOT_FOUND', `Unable to create the config directory: ${String(cause)}`),
+    })
+    yield* Effect.tryPromise({
+      try: () => writeFile(configFile, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 }),
+      catch: (cause) => new DoomainError('CONFIG_NOT_FOUND', `Unable to write the config file: ${String(cause)}`),
+    })
+  })
 }
 
-export async function updateConfig(updater: (config: DoomainConfig) => DoomainConfig): Promise<DoomainConfig> {
-  const next = updater(await loadConfig())
-  await saveConfig(next)
-  return next
+export function updateConfig(updater: (config: DoomainConfig) => DoomainConfig): DoomainEffect<DoomainConfig> {
+  return Effect.gen(function* () {
+    const next = updater(yield* loadConfig())
+    yield* saveConfig(next)
+    return next
+  })
 }
 
-export async function clearConfig(): Promise<boolean> {
-  try {
-    await unlink(getConfigFile())
-    return true
-  } catch {
-    return false
-  }
+export function clearConfig(): DoomainEffect<boolean, never> {
+  return Effect.tryPromise(() => unlink(getConfigFile())).pipe(
+    Effect.as(true),
+    Effect.catchAll(() => Effect.succeed(false)),
+  )
 }
 
 export function getConfigPath(): string {

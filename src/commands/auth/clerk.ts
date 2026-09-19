@@ -3,6 +3,7 @@ import { Command, Flags } from '@oclif/core'
 
 import { createClerkPlatformClient } from '../../lib/clerk.js'
 import { getConfigPath, maskSecret, updateConfig } from '../../lib/config.js'
+import { runDoomainEffect } from '../../lib/effect.js'
 import { jsonFlag } from '../../lib/flags.js'
 import { createOutput, outputError } from '../../lib/output.js'
 
@@ -52,8 +53,8 @@ export default class AuthClerk extends Command {
       appId = value(appId, 'Missing Clerk application id. Pass --app or set CLERK_APPLICATION_ID.')
       if (!platformApiKey.startsWith('ak_')) throw new Error('Clerk Platform API keys must start with ak_.')
 
-      await createClerkPlatformClient({ platformApiKey }).fetchApplication(appId)
-      await updateConfig((config) => ({ ...config, clerk: { appId, platformApiKey } }))
+      await runDoomainEffect(createClerkPlatformClient({ platformApiKey }).fetchApplication(appId))
+      await runDoomainEffect(updateConfig((config) => ({ ...config, clerk: { appId, platformApiKey } })))
       out.result({ clerk: { appId, platformApiKey: maskSecret(platformApiKey) }, configPath: getConfigPath() })
       out.success(`Clerk credentials saved to ${getConfigPath()}.`)
     } catch (error) {

@@ -2,7 +2,9 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Effect } from 'effect'
 
+import type { DoomainEffect } from './effect.js'
 import { DoomainError } from './errors.js'
 
 interface ProcessResult {
@@ -16,7 +18,7 @@ interface ProcessOptions {
   shell: boolean
 }
 
-type ProcessRunner = (command: string, args: string[], options: ProcessOptions) => Promise<ProcessResult>
+type ProcessRunner = (command: string, args: string[], options: ProcessOptions) => DoomainEffect<ProcessResult>
 
 export interface SelfUpdateResult {
   package: string
@@ -30,8 +32,8 @@ export interface SelfUpdateOptions {
   runner?: ProcessRunner
 }
 
-function runProcess(command: string, args: string[], options: ProcessOptions): Promise<ProcessResult> {
-  return new Promise((resolve, reject) => {
+function runProcess(command: string, args: string[], options: ProcessOptions): DoomainEffect<ProcessResult> {
+  return Effect.async<ProcessResult, DoomainError>((resume) => {
     const child = spawn(command, args, {
       ...options,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -48,8 +50,11 @@ function runProcess(command: string, args: string[], options: ProcessOptions): P
     child.stdout.on('data', (chunk: string) => {
       stdout += chunk
     })
-    child.once('error', reject)
-    child.once('close', (exitCode) => resolve({ exitCode, stderr, stdout }))
+    child.once('error', (cause) =>
+      resume(Effect.fail(new DoomainError('SELF_UPDATE_FAILED', `Unable to start npm: ${cause.message}`, cause))),
+    )
+    child.once('close', (exitCode) => resume(Effect.succeed({ exitCode, stderr, stdout })))
+    return Effect.sync(() => child.kill())
   })
 }
 
@@ -77,29 +82,28 @@ export function npmInstallCommand(
   }
 }
 
-export async function installLatestVersion(options: SelfUpdateOptions = {}): Promise<SelfUpdateResult> {
-  const cacheDirectory = await mkdtemp(join(options.cacheRoot ?? tmpdir(), 'doomain-npm-cache-'))
+export function installLatestVersion(options: SelfUpdateOptions = {}): DoomainEffect<SelfUpdateResult> {
+  const acquire = Effect.tryPromise({
+    try: () => mkdtemp(join(options.cacheRoot ?? tmpdir(), 'doomain-npm-cache-')),
+    catch: (cause) => new DoomainError('SELF_UPDATE_FAILED', `Unable to create npm cache: ${String(cause)}`, cause),
+  })
 
-  try {
-    const invocation = npmInstallCommand(cacheDirectory, options.platform)
-    const result = await (options.runner ?? runProcess)(invocation.command, invocation.args, invocation.options)
+  return Effect.acquireUseRelease(
+    acquire,
+    (cacheDirectory) =>
+      Effect.gen(function* () {
+        const invocation = npmInstallCommand(cacheDirectory, options.platform)
+        const result = yield* (options.runner ?? runProcess)(invocation.command, invocation.args, invocation.options)
 
-    if (result.exitCode !== 0) {
-      const reason =
-        result.stderr.trim() || result.stdout.trim() || `npm exited with code ${result.exitCode ?? 'unknown'}`
-      throw new DoomainError('SELF_UPDATE_FAILED', `Unable to update doomain: ${reason}`)
-    }
+        if (result.exitCode !== 0) {
+          const reason =
+            result.stderr.trim() || result.stdout.trim() || `npm exited with code ${result.exitCode ?? 'unknown'}`
+          return yield* Effect.fail(new DoomainError('SELF_UPDATE_FAILED', `Unable to update doomain: ${reason}`))
+        }
 
-    return {
-      package: 'doomain',
-      packageSpec: 'doomain@latest',
-      packageManager: 'npm',
-    }
-  } catch (error) {
-    if (error instanceof DoomainError) throw error
-    const message = error instanceof Error ? error.message : String(error)
-    throw new DoomainError('SELF_UPDATE_FAILED', `Unable to update doomain: ${message}`)
-  } finally {
-    await rm(cacheDirectory, { force: true, recursive: true }).catch(() => undefined)
-  }
+        return { package: 'doomain', packageSpec: 'doomain@latest', packageManager: 'npm' as const }
+      }),
+    (cacheDirectory) =>
+      Effect.tryPromise(() => rm(cacheDirectory, { force: true, recursive: true })).pipe(Effect.ignore),
+  )
 }

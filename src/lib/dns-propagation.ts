@@ -1,5 +1,8 @@
 import { getServers, Resolver, resolve4, resolve6, resolveCname } from 'node:dns/promises'
+import { Effect } from 'effect'
 
+import type { DoomainEffect } from './effect.js'
+import { DoomainError } from './errors.js'
 import { normalizeDnsValue } from './dns-records.js'
 import type { DnsRecordInput, DnsRecordType } from './providers/types.js'
 
@@ -64,68 +67,86 @@ function resolverFor(spec: DnsResolverSpec): Resolver | undefined {
   return resolver
 }
 
-async function queryResolver(fqdn: string, type: DnsRecordType, resolver?: Resolver): Promise<DnsAnswer[]> {
-  if (type === 'A') {
-    const answers = resolver ? await resolver.resolve4(fqdn, { ttl: true }) : await resolve4(fqdn, { ttl: true })
-    return answers.map((answer) => ({ ttl: answer.ttl, value: answer.address }))
-  }
-  if (type === 'AAAA') {
-    const answers = resolver ? await resolver.resolve6(fqdn, { ttl: true }) : await resolve6(fqdn, { ttl: true })
-    return answers.map((answer) => ({ ttl: answer.ttl, value: answer.address }))
-  }
-  if (type === 'CNAME') {
-    const answers = resolver ? await resolver.resolveCname(fqdn) : await resolveCname(fqdn)
-    return answers.map((value) => ({
-      ttl: null,
-      ttlUnavailableReason: 'resolver_api_does_not_expose_cname_ttl',
-      value,
-    }))
-  }
-  throw new Error(`Resolver observation is not supported for ${type} records.`)
+function queryResolver(fqdn: string, type: DnsRecordType, resolver?: Resolver): DoomainEffect<DnsAnswer[]> {
+  return Effect.gen(function* () {
+    if (type === 'A') {
+      const answers = yield* Effect.tryPromise({
+        try: () => (resolver ? resolver.resolve4(fqdn, { ttl: true }) : resolve4(fqdn, { ttl: true })),
+        catch: (cause) => new DoomainError('DNS_DIAGNOSE_FAILED', String(cause), cause),
+      })
+      return answers.map((answer) => ({ ttl: answer.ttl, value: answer.address }))
+    }
+    if (type === 'AAAA') {
+      const answers = yield* Effect.tryPromise({
+        try: () => (resolver ? resolver.resolve6(fqdn, { ttl: true }) : resolve6(fqdn, { ttl: true })),
+        catch: (cause) => new DoomainError('DNS_DIAGNOSE_FAILED', String(cause), cause),
+      })
+      return answers.map((answer) => ({ ttl: answer.ttl, value: answer.address }))
+    }
+    if (type === 'CNAME') {
+      const answers = yield* Effect.tryPromise({
+        try: () => (resolver ? resolver.resolveCname(fqdn) : resolveCname(fqdn)),
+        catch: (cause) => new DoomainError('DNS_DIAGNOSE_FAILED', String(cause), cause),
+      })
+      return answers.map((value) => ({
+        ttl: null,
+        ttlUnavailableReason: 'resolver_api_does_not_expose_cname_ttl',
+        value,
+      }))
+    }
+    return yield* Effect.fail(
+      new DoomainError('DNS_DIAGNOSE_FAILED', `Resolver observation is not supported for ${type} records.`),
+    )
+  })
 }
 
-export async function observeDnsRecord(
+export function observeDnsRecord(
   fqdn: string,
   target: ResolveTarget,
   specs: DnsResolverSpec[] = defaultDnsResolvers,
   elapsedMs = 0,
-): Promise<DnsResolverObservation[]> {
-  return Promise.all(
-    specs.map(async (spec) => {
-      const servers = spec.servers ?? getServers()
-      try {
-        const answers = await queryResolver(fqdn, target.type, resolverFor(spec))
-        return {
-          answers,
-          elapsedMs,
-          expected: target.value,
-          kind: spec.kind,
-          matches:
-            answers.length > 0 &&
-            answers.every((answer) => normalizeDnsValue(answer.value) === normalizeDnsValue(target.value)),
-          resolver: spec.name,
-          servers,
-          type: target.type,
+): DoomainEffect<DnsResolverObservation[], never> {
+  return Effect.all(
+    specs.map((spec) =>
+      Effect.gen(function* () {
+        const servers = spec.servers ?? getServers()
+        const result = yield* queryResolver(fqdn, target.type, resolverFor(spec)).pipe(Effect.either)
+        if (result._tag === 'Right') {
+          const answers = result.right
+          return {
+            answers,
+            elapsedMs,
+            expected: target.value,
+            kind: spec.kind,
+            matches:
+              answers.length > 0 &&
+              answers.every((answer) => normalizeDnsValue(answer.value) === normalizeDnsValue(target.value)),
+            resolver: spec.name,
+            servers,
+            type: target.type,
+          }
+        } else {
+          const error = result.left
+          const errorCode =
+            error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+              ? error.code
+              : undefined
+          return {
+            answers: [],
+            elapsedMs,
+            error: error instanceof Error ? error.message : String(error),
+            ...(errorCode ? { errorCode } : {}),
+            expected: target.value,
+            kind: spec.kind,
+            matches: false,
+            resolver: spec.name,
+            servers,
+            type: target.type,
+          }
         }
-      } catch (error) {
-        const errorCode =
-          error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
-            ? error.code
-            : undefined
-        return {
-          answers: [],
-          elapsedMs,
-          error: error instanceof Error ? error.message : String(error),
-          ...(errorCode ? { errorCode } : {}),
-          expected: target.value,
-          kind: spec.kind,
-          matches: false,
-          resolver: spec.name,
-          servers,
-          type: target.type,
-        }
-      }
-    }),
+      }),
+    ),
+    { concurrency: 'unbounded' },
   )
 }
 
@@ -142,42 +163,48 @@ export function classifyDnsPropagation(observations: DnsResolverObservation[]): 
   return 'propagated'
 }
 
-const sleep = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds))
+const sleep = (milliseconds: number): DoomainEffect<void, never> => Effect.sleep(milliseconds)
 
-export async function waitForDnsPropagation(input: {
+export function waitForDnsPropagation(input: {
   fqdn: string
   record: ResolveTarget
   timeoutSeconds: number
-  observe?: (fqdn: string, target: ResolveTarget, elapsedMs: number) => Promise<DnsResolverObservation[]>
+  observe?: (fqdn: string, target: ResolveTarget, elapsedMs: number) => DoomainEffect<DnsResolverObservation[]>
   now?: () => number
-  sleep?: (milliseconds: number) => Promise<void>
-}): Promise<DnsPropagationResult> {
-  const now = input.now ?? Date.now
-  const wait = input.sleep ?? sleep
-  const started = now()
-  const deadline = started + input.timeoutSeconds * 1000
-  let observations: DnsResolverObservation[] = []
+  sleep?: (milliseconds: number) => DoomainEffect<void, never>
+}): DoomainEffect<DnsPropagationResult> {
+  return Effect.gen(function* () {
+    const now = input.now ?? Date.now
+    const wait = input.sleep ?? sleep
+    const started = now()
+    const deadline = started + input.timeoutSeconds * 1000
+    let observations: DnsResolverObservation[] = []
 
-  while (true) {
-    const elapsedMs = now() - started
-    observations = input.observe
-      ? await input.observe(input.fqdn, input.record, elapsedMs)
-      : await observeDnsRecord(input.fqdn, input.record, defaultDnsResolvers, elapsedMs)
-    const status = classifyDnsPropagation(observations)
-    if (status === 'propagated' || status === 'local_or_vpn_cache_stale' || status === 'system_resolver_unavailable') {
-      return { elapsedMs, expected: input.record.value, observations, status }
-    }
-
-    const remaining = deadline - now()
-    if (remaining <= 0) {
-      return {
-        elapsedMs: now() - started,
-        expected: input.record.value,
-        observations,
-        status,
-        timeoutReason: 'public_resolvers_did_not_match_before_timeout',
+    while (true) {
+      const elapsedMs = now() - started
+      observations = input.observe
+        ? yield* input.observe(input.fqdn, input.record, elapsedMs)
+        : yield* observeDnsRecord(input.fqdn, input.record, defaultDnsResolvers, elapsedMs)
+      const status = classifyDnsPropagation(observations)
+      if (
+        status === 'propagated' ||
+        status === 'local_or_vpn_cache_stale' ||
+        status === 'system_resolver_unavailable'
+      ) {
+        return { elapsedMs, expected: input.record.value, observations, status }
       }
+
+      const remaining = deadline - now()
+      if (remaining <= 0) {
+        return {
+          elapsedMs: now() - started,
+          expected: input.record.value,
+          observations,
+          status,
+          timeoutReason: 'public_resolvers_did_not_match_before_timeout',
+        }
+      }
+      yield* wait(Math.min(5000, remaining))
     }
-    await wait(Math.min(5000, remaining))
-  }
+  })
 }

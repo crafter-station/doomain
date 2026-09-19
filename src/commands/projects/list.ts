@@ -1,6 +1,7 @@
 import { Command, Flags } from '@oclif/core'
 
 import { jsonFlag } from '../../lib/flags.js'
+import { runDoomainEffect } from '../../lib/effect.js'
 import { createOutput, outputError } from '../../lib/output.js'
 import { createVercelClient, resolveVercelConfig } from '../../lib/vercel.js'
 
@@ -17,8 +18,8 @@ export default class ProjectsList extends Command {
     const out = createOutput({ json: flags.json })
 
     try {
-      const vercel = createVercelClient(await resolveVercelConfig())
-      const projects = await vercel.listProjects(flags.search)
+      const vercel = createVercelClient(await runDoomainEffect(resolveVercelConfig()))
+      const projects = await runDoomainEffect(vercel.listProjects(flags.search))
       for (const project of projects) out.info(`${project.name} (${project.id})`)
       out.result({ projects })
     } catch (error) {

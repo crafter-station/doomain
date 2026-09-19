@@ -5,7 +5,17 @@ import { join } from 'node:path'
 import { expect } from 'chai'
 
 import { DoomainError } from '../../src/lib/errors.js'
-import { createVercelClient, resolveVercelConfig } from '../../src/lib/vercel.js'
+import { createVercelClient as createVercelEffectClient, resolveVercelConfig } from '../../src/lib/vercel.js'
+import { runEffect } from '../helpers/effect.js'
+
+const createVercelClient = (...args: Parameters<typeof createVercelEffectClient>) => {
+  const client = createVercelEffectClient(...args)
+  return {
+    addDomainToProject: (...methodArgs: Parameters<typeof client.addDomainToProject>) =>
+      runEffect(client.addDomainToProject(...methodArgs)),
+    listTeams: (...methodArgs: Parameters<typeof client.listTeams>) => runEffect(client.listTeams(...methodArgs)),
+  }
+}
 
 function jsonResponse(body: unknown): Response {
   return { json: async () => body, ok: true, status: 200 } as Response
@@ -66,7 +76,7 @@ describe('vercel client', () => {
       mkdirSync(authDir, { recursive: true })
       writeFileSync(join(authDir, 'auth.json'), JSON.stringify({ token: 'cli_token' }))
 
-      const config = await resolveVercelConfig()
+      const config = await runEffect(resolveVercelConfig())
       expect(config.token).to.equal('cli_token')
       expect(config.teamId).to.equal(undefined)
     } finally {

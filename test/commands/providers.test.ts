@@ -5,8 +5,11 @@ import { join } from 'node:path'
 import { runCommand } from '@oclif/test'
 import { expect } from 'chai'
 
-import { loadConfig, saveConfig } from '../../src/lib/config.js'
+import { loadConfig, saveConfig as saveConfigEffect } from '../../src/lib/config.js'
 import { providerAccountHasCredentials, withProviderAccountCredentials } from '../../src/lib/providers/core/config.js'
+import { runEffect } from '../helpers/effect.js'
+
+const saveConfig = (...args: Parameters<typeof saveConfigEffect>) => runEffect(saveConfigEffect(...args))
 
 describe('providers', () => {
   const originalFetch = globalThis.fetch
@@ -135,7 +138,7 @@ describe('providers', () => {
 
     const { stdout } = await runCommand('providers disconnect namecheap --json')
     const result = JSON.parse(stdout) as { data: { provider: string; removed: boolean }; ok: boolean }
-    const config = await loadConfig()
+    const config = await runEffect(loadConfig())
 
     expect(result.ok).to.equal(true)
     expect(result.data.provider).to.equal('namecheap')
@@ -160,7 +163,7 @@ describe('providers', () => {
       data: { account: string; isDefaultAccount: boolean; provider: string }
       ok: boolean
     }
-    const config = await loadConfig()
+    const config = await runEffect(loadConfig())
 
     expect(result.ok).to.equal(true)
     expect(result.data.provider).to.equal('spaceship')
@@ -181,7 +184,7 @@ describe('providers', () => {
       'providers connect spaceship --credential apiKey=default_key --credential apiSecret=default_secret --no-verify --json',
     )
     const result = JSON.parse(stdout) as { data: { account: string; isDefaultAccount: boolean }; ok: boolean }
-    const config = await loadConfig()
+    const config = await runEffect(loadConfig())
 
     expect(result.ok).to.equal(true)
     expect(result.data.account).to.equal('default')
@@ -292,7 +295,7 @@ describe('providers', () => {
 
     const { stdout } = await runCommand('providers disconnect spaceship --account work --json')
     const result = JSON.parse(stdout) as { data: { account: string; removed: boolean }; ok: boolean }
-    const config = await loadConfig()
+    const config = await runEffect(loadConfig())
 
     expect(result.ok).to.equal(true)
     expect(result.data.account).to.equal('work')
@@ -317,7 +320,7 @@ describe('providers', () => {
 
     const { stdout } = await runCommand('providers disconnect spaceship --account default --json')
     const result = JSON.parse(stdout) as { data: { account: string; removed: boolean }; ok: boolean }
-    const config = await loadConfig()
+    const config = await runEffect(loadConfig())
 
     expect(result.ok).to.equal(true)
     expect(result.data.account).to.equal('default')
@@ -343,7 +346,7 @@ describe('providers', () => {
 
     const { stdout } = await runCommand('providers disconnect spaceship --json')
     const result = JSON.parse(stdout) as { data: { removed: boolean }; ok: boolean }
-    const config = await loadConfig()
+    const config = await runEffect(loadConfig())
 
     expect(result.ok).to.equal(true)
     expect(result.data.removed).to.equal(true)

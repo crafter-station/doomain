@@ -25,7 +25,12 @@ export function getProviderDefinition(id: string): DnsProviderDefinition {
   return definition
 }
 
-export async function createProvider(id: string, opts: { account?: string } = {}): Promise<DnsProvider> {
-  const definition = getProviderDefinition(id)
-  return definition.create(await createProviderContext(definition, opts))
+export function createProvider(id: string, opts: { account?: string } = {}): DoomainEffect<DnsProvider> {
+  return Effect.gen(function* () {
+    const definition = getProviderDefinition(id)
+    return definition.create(yield* createProviderContext(definition, opts))
+  })
 }
+import { Effect } from 'effect'
+
+import type { DoomainEffect } from '../effect.js'

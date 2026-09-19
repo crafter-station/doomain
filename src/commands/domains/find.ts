@@ -1,6 +1,7 @@
 import { Args, Command } from '@oclif/core'
 
 import { findDomainProvider } from '../../lib/domain-provider.js'
+import { runDoomainEffect } from '../../lib/effect.js'
 import { DoomainError } from '../../lib/errors.js'
 import { accountFlag, domainFlag, jsonFlag, providerFlag } from '../../lib/flags.js'
 import { createOutput, outputError } from '../../lib/output.js'
@@ -34,7 +35,9 @@ export default class DomainsFind extends Command {
       if (!domain)
         throw new DoomainError('MISSING_ARGUMENT', 'Domain is required. Pass it as an argument or use --domain.')
 
-      const result = await findDomainProvider({ account: flags.account, domain, provider: flags.provider })
+      const result = await runDoomainEffect(
+        findDomainProvider({ account: flags.account, domain, provider: flags.provider }),
+      )
       const account = result.isDefaultAccount ? result.provider : `${result.provider}/${result.account}`
       out.info(`${result.domain} is managed by ${account} in DNS zone ${result.zoneDomain}.`)
       for (const warning of result.warnings) {

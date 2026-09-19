@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { getServers } from 'node:dns'
 import { networkInterfaces, platform } from 'node:os'
 import { promisify } from 'node:util'
+import { Effect } from 'effect'
 
 import {
   classifyDnsPropagation,
@@ -18,6 +19,7 @@ import {
   normalizeDnsValue,
 } from './dns-records.js'
 import { type ResolvedDnsTarget, resolveProviderTarget } from './domain-provider.js'
+import { trySync, type DoomainEffect } from './effect.js'
 import { DoomainError } from './errors.js'
 import { createProvider } from './providers/registry.js'
 import type { DnsProvider, DnsRecord, DnsRecordInput, DnsRecordType } from './providers/types.js'
@@ -73,43 +75,43 @@ export interface DiagnoseDnsResult {
 }
 
 interface DiagnoseDnsDependencies {
-  createProvider: (provider: string, opts: { account?: string }) => Promise<DnsProvider>
+  createProvider: (provider: string, opts: { account?: string }) => DoomainEffect<DnsProvider>
   observeDns: (
     fqdn: string,
     target: Pick<DnsRecordInput, 'type' | 'value'>,
     elapsedMs: number,
-  ) => Promise<DnsResolverObservation[]>
-  resolveTarget: (input: Pick<DiagnoseDnsInput, 'account' | 'domain' | 'provider'>) => Promise<ResolvedDnsTarget>
-  macOsResolvers?: () => Promise<MacOsResolverMetadata[]>
+  ) => DoomainEffect<DnsResolverObservation[]>
+  resolveTarget: (input: Pick<DiagnoseDnsInput, 'account' | 'domain' | 'provider'>) => DoomainEffect<ResolvedDnsTarget>
+  macOsResolvers?: () => DoomainEffect<MacOsResolverMetadata[], never>
 }
 
 const execFileAsync = promisify(execFile)
 
-async function readMacOsResolvers(): Promise<MacOsResolverMetadata[]> {
-  if (platform() !== 'darwin') return []
-  try {
-    const { stdout } = await execFileAsync('scutil', ['--dns'], { maxBuffer: 1024 * 1024 })
-    return String(stdout)
-      .split(/\n(?=resolver #\d+)/)
-      .flatMap((block) => {
-        const resolver = block.match(/resolver #(\d+)/)?.[1]
-        if (!resolver) return []
-        const interfaceMatch = block.match(/if_index\s*:\s*(\d+)(?:\s*\(([^)]+)\))?/)
-        const nameservers = [...block.matchAll(/nameserver\[\d+\]\s*:\s*(\S+)/g)].map((match) => match[1])
-        const flags = block.match(/flags\s*:\s*(.+)/)?.[1]?.trim()
-        return [
-          {
-            ...(flags ? { flags } : {}),
-            ...(interfaceMatch ? { interfaceIndex: Number(interfaceMatch[1]) } : {}),
-            ...(interfaceMatch?.[2] ? { interfaceName: interfaceMatch[2] } : {}),
-            nameservers,
-            resolver: Number(resolver),
-          },
-        ]
-      })
-  } catch {
-    return []
-  }
+function readMacOsResolvers(): DoomainEffect<MacOsResolverMetadata[], never> {
+  if (platform() !== 'darwin') return Effect.succeed([])
+  return Effect.tryPromise(() => execFileAsync('scutil', ['--dns'], { maxBuffer: 1024 * 1024 })).pipe(
+    Effect.map(({ stdout }) =>
+      String(stdout)
+        .split(/\n(?=resolver #\d+)/)
+        .flatMap((block) => {
+          const resolver = block.match(/resolver #(\d+)/)?.[1]
+          if (!resolver) return []
+          const interfaceMatch = block.match(/if_index\s*:\s*(\d+)(?:\s*\(([^)]+)\))?/)
+          const nameservers = [...block.matchAll(/nameserver\[\d+\]\s*:\s*(\S+)/g)].map((match) => match[1])
+          const flags = block.match(/flags\s*:\s*(.+)/)?.[1]?.trim()
+          return [
+            {
+              ...(flags ? { flags } : {}),
+              ...(interfaceMatch ? { interfaceIndex: Number(interfaceMatch[1]) } : {}),
+              ...(interfaceMatch?.[2] ? { interfaceName: interfaceMatch[2] } : {}),
+              nameservers,
+              resolver: Number(resolver),
+            },
+          ]
+        }),
+    ),
+    Effect.catchAll(() => Effect.succeed([])),
+  )
 }
 
 const defaultDependencies: DiagnoseDnsDependencies = {
@@ -163,79 +165,84 @@ function diagnosisResolutionError(error: DoomainError, input: DiagnoseDnsInput):
   })
 }
 
-export async function diagnoseDns(
+export function diagnoseDns(
   input: DiagnoseDnsInput,
   dependencies: DiagnoseDnsDependencies = defaultDependencies,
-): Promise<DiagnoseDnsResult> {
-  const recordType = input.recordType ?? (input.target ? inferAddressRecordType(input.target.trim()) : undefined) ?? 'A'
-  const requestedTarget =
-    input.target === undefined ? undefined : normalizeAddressRecordTarget(recordType, input.target)
-  let resolved: ResolvedDnsTarget
-  try {
-    resolved = await dependencies.resolveTarget(input)
-  } catch (error) {
-    if (error instanceof DoomainError) throw diagnosisResolutionError(error, input)
-    throw error
-  }
-  const provider = await dependencies.createProvider(resolved.provider, { account: resolved.account })
-  const zone = await provider.getZone(resolved.target.zoneDomain)
-  if (!zone) {
-    throw diagnosisResolutionError(
-      new DoomainError(
-        'PROVIDER_ZONE_NOT_FOUND',
-        `${provider.name} does not have a DNS zone for ${resolved.target.zoneDomain}.`,
-      ),
-      input,
+): DoomainEffect<DiagnoseDnsResult> {
+  return Effect.gen(function* () {
+    const recordType = yield* trySync(
+      () => input.recordType ?? (input.target ? inferAddressRecordType(input.target.trim()) : undefined) ?? 'A',
+      'INVALID_INPUT',
     )
-  }
-  const allRecords = await provider.listRecords(zone)
-  const providerRecords = allRecords.filter((record) => dnsRecordNamesEqual(record.name, resolved.target.recordName))
-  const recordsOfType = providerRecords.filter((record) => record.type === recordType)
-  const expected = requestedTarget ?? (recordsOfType.length === 1 ? recordsOfType[0].value : undefined)
-  const queryTarget = { type: recordType, value: expected ?? recordsOfType[0]?.value ?? '' }
-  const observations = await dependencies.observeDns(resolved.target.fullDomain, queryTarget, 0)
-  const macOsResolvers = await dependencies.macOsResolvers?.()
+    const requestedTarget = yield* trySync(
+      () => (input.target === undefined ? undefined : normalizeAddressRecordTarget(recordType, input.target)),
+      'INVALID_INPUT',
+    )
+    const resolved = yield* dependencies
+      .resolveTarget(input)
+      .pipe(Effect.mapError((error) => diagnosisResolutionError(error, input)))
+    const provider = yield* dependencies.createProvider(resolved.provider, { account: resolved.account })
+    const zone = yield* provider.getZone(resolved.target.zoneDomain)
+    if (!zone) {
+      return yield* Effect.fail(
+        diagnosisResolutionError(
+          new DoomainError(
+            'PROVIDER_ZONE_NOT_FOUND',
+            `${provider.name} does not have a DNS zone for ${resolved.target.zoneDomain}.`,
+          ),
+          input,
+        ),
+      )
+    }
+    const allRecords = yield* provider.listRecords(zone)
+    const providerRecords = allRecords.filter((record) => dnsRecordNamesEqual(record.name, resolved.target.recordName))
+    const recordsOfType = providerRecords.filter((record) => record.type === recordType)
+    const expected = requestedTarget ?? (recordsOfType.length === 1 ? recordsOfType[0].value : undefined)
+    const queryTarget = { type: recordType, value: expected ?? recordsOfType[0]?.value ?? '' }
+    const observations = yield* dependencies.observeDns(resolved.target.fullDomain, queryTarget, 0)
+    const macOsResolvers = dependencies.macOsResolvers ? yield* dependencies.macOsResolvers() : undefined
 
-  let status: DnsDiagnosisStatus
-  if (expected) {
-    const postcondition = desiredSlotPostcondition(allRecords, {
-      name: resolved.target.recordName,
-      type: recordType,
-      value: expected,
-    })
-    status = postcondition.reconciled ? diagnosisStatus(classifyDnsPropagation(observations)) : 'provider_not_updated'
-  } else {
-    const providerValues = new Set(recordsOfType.map((record) => normalizeDnsValue(record.value)))
-    const compared = observations.map((observation) => ({
-      ...observation,
-      matches:
-        providerValues.size === 0
-          ? observation.answers.length === 0 && isNegativeDnsObservation(observation)
-          : observation.answers.length === providerValues.size &&
-            observation.answers.every((answer) => providerValues.has(normalizeDnsValue(answer.value))),
-    }))
-    observations.splice(0, observations.length, ...compared)
-    status = diagnosisStatus(classifyDnsPropagation(observations))
-  }
+    let status: DnsDiagnosisStatus
+    if (expected) {
+      const postcondition = desiredSlotPostcondition(allRecords, {
+        name: resolved.target.recordName,
+        type: recordType,
+        value: expected,
+      })
+      status = postcondition.reconciled ? diagnosisStatus(classifyDnsPropagation(observations)) : 'provider_not_updated'
+    } else {
+      const providerValues = new Set(recordsOfType.map((record) => normalizeDnsValue(record.value)))
+      const compared = observations.map((observation) => ({
+        ...observation,
+        matches:
+          providerValues.size === 0
+            ? observation.answers.length === 0 && isNegativeDnsObservation(observation)
+            : observation.answers.length === providerValues.size &&
+              observation.answers.every((answer) => providerValues.has(normalizeDnsValue(answer.value))),
+      }))
+      observations.splice(0, observations.length, ...compared)
+      status = diagnosisStatus(classifyDnsPropagation(observations))
+    }
 
-  return {
-    account: resolved.account,
-    accountInferred: resolved.accountInferred,
-    conflicts: recordConflicts(providerRecords),
-    domain: resolved.target.fullDomain,
-    ...(expected === undefined ? {} : { expected }),
-    interfaces: activeInterfaceNames(),
-    isDefaultAccount: resolved.isDefaultAccount,
-    ...(macOsResolvers && macOsResolvers.length > 0 ? { macOsResolvers } : {}),
-    observations,
-    platform: platform(),
-    provider: resolved.provider,
-    providerInferred: resolved.providerInferred,
-    providerRecords,
-    recordType,
-    status,
-    systemResolverServers: getServers(),
-    warnings: resolved.warnings,
-    zoneDomain: resolved.target.zoneDomain,
-  }
+    return {
+      account: resolved.account,
+      accountInferred: resolved.accountInferred,
+      conflicts: recordConflicts(providerRecords),
+      domain: resolved.target.fullDomain,
+      ...(expected === undefined ? {} : { expected }),
+      interfaces: activeInterfaceNames(),
+      isDefaultAccount: resolved.isDefaultAccount,
+      ...(macOsResolvers && macOsResolvers.length > 0 ? { macOsResolvers } : {}),
+      observations,
+      platform: platform(),
+      provider: resolved.provider,
+      providerInferred: resolved.providerInferred,
+      providerRecords,
+      recordType,
+      status,
+      systemResolverServers: getServers(),
+      warnings: resolved.warnings,
+      zoneDomain: resolved.target.zoneDomain,
+    }
+  })
 }

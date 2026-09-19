@@ -1,4 +1,7 @@
+import { Effect } from 'effect'
+
 import { type DnsPropagationResult, type DnsResolverObservation, waitForDnsPropagation } from './dns-propagation.js'
+import { trySync, type DoomainEffect } from './effect.js'
 import { reconcileDesiredRecord } from './dns-reconciliation.js'
 import { inferAddressRecordType, normalizeAddressRecordTarget } from './dns-records.js'
 import { type ResolvedDnsTarget, resolveProviderTarget } from './domain-provider.js'
@@ -44,13 +47,13 @@ export interface PointDomainResult {
 }
 
 interface PointDomainDependencies {
-  createProvider: (provider: string, opts: { account?: string }) => Promise<DnsProvider>
+  createProvider: (provider: string, opts: { account?: string }) => DoomainEffect<DnsProvider>
   observeDns?: (
     fqdn: string,
     target: Pick<DnsRecordInput, 'type' | 'value'>,
     elapsedMs: number,
-  ) => Promise<DnsResolverObservation[]>
-  resolveTarget: (input: Pick<PointDomainInput, 'account' | 'domain' | 'provider'>) => Promise<ResolvedDnsTarget>
+  ) => DoomainEffect<DnsResolverObservation[]>
+  resolveTarget: (input: Pick<PointDomainInput, 'account' | 'domain' | 'provider'>) => DoomainEffect<ResolvedDnsTarget>
 }
 
 const defaultDependencies: PointDomainDependencies = {
@@ -115,6 +118,9 @@ function dnsTargetConflictError(warning: DnsOverrideWarning): DoomainError {
 }
 
 function providerResolutionError(error: DoomainError, input: PointDomainInput): DoomainError {
+  if (error.code === 'PROVIDER_API_ERROR' && error.details instanceof Error) {
+    return new DoomainError('DNS_POINT_FAILED', error.details.message)
+  }
   if (error.code !== 'CONFIG_NOT_FOUND' && error.code !== 'PROVIDER_ZONE_NOT_FOUND') return error
 
   const details = error.details && typeof error.details === 'object' ? error.details : {}
@@ -148,119 +154,125 @@ function validateTtl(provider: DnsProvider, ttl: number | undefined): void {
   }
 }
 
-export async function pointDomain(
+export function pointDomain(
   input: PointDomainInput,
   dependencies: PointDomainDependencies = defaultDependencies,
-): Promise<PointDomainResult> {
-  let resolved: ResolvedDnsTarget
-  try {
-    resolved = await dependencies.resolveTarget(input)
-  } catch (error) {
-    if (error instanceof DoomainError) throw providerResolutionError(error, input)
-    throw error
-  }
+): DoomainEffect<PointDomainResult> {
+  return Effect.gen(function* () {
+    const resolved = yield* dependencies
+      .resolveTarget(input)
+      .pipe(Effect.mapError((error) => providerResolutionError(error, input)))
 
-  const record = createPointRecord({
-    provider: resolved.provider,
-    recordName: resolved.target.recordName,
-    recordType: input.recordType,
-    target: input.target,
-    ttl: input.ttl,
-  })
-  const provider = await dependencies.createProvider(resolved.provider, { account: resolved.account })
-  validateTtl(provider, record.ttl)
-  if (!provider.capabilities.recordTypes.includes(record.type)) {
-    throw new DoomainError('PROVIDER_UNSUPPORTED_RECORD', `${provider.name} does not support ${record.type} records.`)
-  }
-
-  if (resolved.target.isApex && record.type === 'CNAME' && !provider.capabilities.supportsApexCname) {
-    throw new DoomainError(
-      'PROVIDER_UNSUPPORTED_RECORD',
-      `${provider.name} does not support CNAME records at the zone apex. Use an A or AAAA target instead.`,
+    const record = yield* trySync(
+      () =>
+        createPointRecord({
+          provider: resolved.provider,
+          recordName: resolved.target.recordName,
+          recordType: input.recordType,
+          target: input.target,
+          ttl: input.ttl,
+        }),
+      'INVALID_INPUT',
     )
-  }
+    const provider = yield* dependencies.createProvider(resolved.provider, { account: resolved.account })
+    yield* trySync(() => validateTtl(provider, record.ttl), 'INVALID_INPUT')
+    if (!provider.capabilities.recordTypes.includes(record.type)) {
+      return yield* Effect.fail(
+        new DoomainError('PROVIDER_UNSUPPORTED_RECORD', `${provider.name} does not support ${record.type} records.`),
+      )
+    }
 
-  if (input.dryRun) {
+    if (resolved.target.isApex && record.type === 'CNAME' && !provider.capabilities.supportsApexCname) {
+      return yield* Effect.fail(
+        new DoomainError(
+          'PROVIDER_UNSUPPORTED_RECORD',
+          `${provider.name} does not support CNAME records at the zone apex. Use an A or AAAA target instead.`,
+        ),
+      )
+    }
+
+    if (input.dryRun) {
+      return {
+        account: resolved.account,
+        accountInferred: resolved.accountInferred,
+        domain: resolved.target.fullDomain,
+        dryRun: true,
+        isDefaultAccount: resolved.isDefaultAccount,
+        provider: resolved.provider,
+        providerInferred: resolved.providerInferred,
+        propagated: false,
+        propagation: { elapsedMs: 0, expected: record.value, observations: [], status: 'not_checked' },
+        reconciled: false,
+        reconciliationAttempts: 0,
+        record,
+        skipped: [],
+        updated: false,
+        zoneDomain: resolved.target.zoneDomain,
+      }
+    }
+
+    const zone = yield* provider.getZone(resolved.target.zoneDomain)
+    if (!zone) {
+      return yield* Effect.fail(
+        new DoomainError(
+          'PROVIDER_ZONE_NOT_FOUND',
+          `${provider.name} does not have a DNS zone for ${resolved.target.zoneDomain}.`,
+        ),
+      )
+    }
+
+    input.progress?.(`Planning DNS change in ${provider.name}`)
+    let force = Boolean(input.force)
+    let plan = yield* provider.planChanges(zone, [record], { force })
+
+    if (!force && plan.conflicts.length > 0) {
+      const warning = conflictWarning(resolved, provider, record, plan.conflicts)
+      force = input.confirmDnsOverride
+        ? yield* Effect.promise(() => input.confirmDnsOverride?.(warning) ?? Promise.resolve(false))
+        : false
+      if (!force) return yield* Effect.fail(dnsTargetConflictError(warning))
+      plan = yield* provider.planChanges(zone, [record], { force: true })
+    }
+
+    input.progress?.(`Pointing ${resolved.target.fullDomain} to ${record.value}`)
+    const result = yield* provider.applyChanges(zone, plan, { force })
+    const reconciliation = yield* reconcileDesiredRecord({
+      desired: record,
+      progress: input.progress,
+      provider,
+      timeoutMs: (input.reconcileTimeoutSeconds ?? 30) * 1000,
+      zone,
+    })
+    const shouldWait = input.wait ?? true
+    const propagation: DnsPropagationResult = shouldWait
+      ? yield* waitForDnsPropagation({
+          fqdn: recordFqdn(record, resolved.target.zoneDomain),
+          observe: dependencies.observeDns,
+          record,
+          timeoutSeconds: input.timeoutSeconds ?? 300,
+        })
+      : { elapsedMs: 0, expected: record.value, observations: [], status: 'not_checked' }
+    const propagated =
+      propagation.status === 'propagated' ||
+      propagation.status === 'local_or_vpn_cache_stale' ||
+      propagation.status === 'system_resolver_unavailable'
+
     return {
       account: resolved.account,
       accountInferred: resolved.accountInferred,
       domain: resolved.target.fullDomain,
-      dryRun: true,
+      dryRun: false,
       isDefaultAccount: resolved.isDefaultAccount,
       provider: resolved.provider,
       providerInferred: resolved.providerInferred,
-      propagated: false,
-      propagation: {
-        elapsedMs: 0,
-        expected: record.value,
-        observations: [],
-        status: 'not_checked',
-      },
-      reconciled: false,
-      reconciliationAttempts: 0,
+      propagated,
+      propagation,
+      reconciled: reconciliation.reconciled,
+      reconciliationAttempts: reconciliation.attempts,
       record,
-      skipped: [],
-      updated: false,
+      skipped: result.skipped,
+      updated: result.applied.length > 0 || reconciliation.appliedChanges > 0,
       zoneDomain: resolved.target.zoneDomain,
     }
-  }
-
-  const zone = await provider.getZone(resolved.target.zoneDomain)
-  if (!zone)
-    throw new DoomainError(
-      'PROVIDER_ZONE_NOT_FOUND',
-      `${provider.name} does not have a DNS zone for ${resolved.target.zoneDomain}.`,
-    )
-
-  input.progress?.(`Planning DNS change in ${provider.name}`)
-  let force = Boolean(input.force)
-  let plan = await provider.planChanges(zone, [record], { force })
-
-  if (!force && plan.conflicts.length > 0) {
-    const warning = conflictWarning(resolved, provider, record, plan.conflicts)
-    force = (await input.confirmDnsOverride?.(warning)) === true
-    if (!force) throw dnsTargetConflictError(warning)
-    plan = await provider.planChanges(zone, [record], { force: true })
-  }
-
-  input.progress?.(`Pointing ${resolved.target.fullDomain} to ${record.value}`)
-  const result = await provider.applyChanges(zone, plan, { force })
-  const reconciliation = await reconcileDesiredRecord({
-    desired: record,
-    progress: input.progress,
-    provider,
-    timeoutMs: (input.reconcileTimeoutSeconds ?? 30) * 1000,
-    zone,
   })
-  const shouldWait = input.wait ?? true
-  const propagation: DnsPropagationResult = shouldWait
-    ? await waitForDnsPropagation({
-        fqdn: recordFqdn(record, resolved.target.zoneDomain),
-        observe: dependencies.observeDns,
-        record,
-        timeoutSeconds: input.timeoutSeconds ?? 300,
-      })
-    : { elapsedMs: 0, expected: record.value, observations: [], status: 'not_checked' }
-  const propagated =
-    propagation.status === 'propagated' ||
-    propagation.status === 'local_or_vpn_cache_stale' ||
-    propagation.status === 'system_resolver_unavailable'
-
-  return {
-    account: resolved.account,
-    accountInferred: resolved.accountInferred,
-    domain: resolved.target.fullDomain,
-    dryRun: false,
-    isDefaultAccount: resolved.isDefaultAccount,
-    provider: resolved.provider,
-    providerInferred: resolved.providerInferred,
-    propagated,
-    propagation,
-    reconciled: reconciliation.reconciled,
-    reconciliationAttempts: reconciliation.attempts,
-    record,
-    skipped: result.skipped,
-    updated: result.applied.length > 0 || reconciliation.appliedChanges > 0,
-    zoneDomain: resolved.target.zoneDomain,
-  }
 }

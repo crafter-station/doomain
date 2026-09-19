@@ -2,6 +2,7 @@ import * as p from '@clack/prompts'
 import { Command, Flags } from '@oclif/core'
 
 import { getConfigPath, maskSecret, updateConfig } from '../../lib/config.js'
+import { runDoomainEffect } from '../../lib/effect.js'
 import { jsonFlag } from '../../lib/flags.js'
 import { createOutput, outputError } from '../../lib/output.js'
 import { createVercelClient, type VercelTeam } from '../../lib/vercel.js'
@@ -73,7 +74,7 @@ export default class AuthVercel extends Command {
     try {
       let token = flags.token
       let teamId = flags['team-id'] || process.env.VERCEL_TEAM_ID?.trim() || undefined
-      const globalTokens = token ? [] : await listGlobalVercelTokens()
+      const globalTokens = token ? [] : await runDoomainEffect(listGlobalVercelTokens())
 
       if (!token) {
         if (out.json) {
@@ -89,7 +90,7 @@ export default class AuthVercel extends Command {
       if (!out.json && teamId === undefined) {
         const spinner = p.spinner()
         spinner.start('Loading Vercel teams')
-        const teams = await createVercelClient({ token }).listTeams()
+        const teams = await runDoomainEffect(createVercelClient({ token }).listTeams())
         spinner.stop(`Loaded ${teams.length} Vercel team${teams.length === 1 ? '' : 's'}`)
 
         const selected = await p.select({
@@ -108,10 +109,12 @@ export default class AuthVercel extends Command {
         teamId = selected === PERSONAL_ACCOUNT ? undefined : selected
       }
 
-      await updateConfig((config) => ({
-        ...config,
-        vercel: { token, teamId },
-      }))
+      await runDoomainEffect(
+        updateConfig((config) => ({
+          ...config,
+          vercel: { token, teamId },
+        })),
+      )
 
       out.result({ configPath: getConfigPath(), vercel: { token: maskSecret(token), teamId } })
       out.success(`Vercel credentials saved to ${getConfigPath()}.`)

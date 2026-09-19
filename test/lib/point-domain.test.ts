@@ -1,14 +1,50 @@
 import { strict as assert } from 'node:assert'
 import { describe, it } from 'mocha'
+import { Effect } from 'effect'
 
+import type { DnsResolverObservation } from '../../src/lib/dns-propagation.js'
+import type { ResolvedDnsTarget } from '../../src/lib/domain-provider.js'
 import { DoomainError } from '../../src/lib/errors.js'
-import { createPointRecord, pointDomain } from '../../src/lib/point-domain.js'
+import {
+  createPointRecord,
+  type PointDomainInput,
+  pointDomain as pointDomainEffect,
+} from '../../src/lib/point-domain.js'
 import { planDnsChanges } from '../../src/lib/providers/core/planner.js'
-import type { DnsChangePlan, DnsProvider, DnsRecord, DnsRecordInput, DnsZone } from '../../src/lib/providers/types.js'
+import type { DnsChangePlan, DnsRecord, DnsRecordInput, DnsZone } from '../../src/lib/providers/types.js'
+import { effectFromPromise, effectProvider, type PromiseDnsProvider, runEffect } from '../helpers/effect.js'
+
+interface TestDependencies {
+  createProvider: (provider: string, opts: { account?: string }) => Promise<PromiseDnsProvider>
+  observeDns?: (
+    fqdn: string,
+    target: Pick<DnsRecordInput, 'type' | 'value'>,
+    elapsedMs: number,
+  ) => Promise<DnsResolverObservation[]>
+  resolveTarget: (input: Pick<PointDomainInput, 'account' | 'domain' | 'provider'>) => Promise<ResolvedDnsTarget>
+}
+
+const pointDomain = (input: PointDomainInput, dependencies?: TestDependencies) =>
+  runEffect(
+    pointDomainEffect(
+      input,
+      dependencies
+        ? {
+            createProvider: (provider, opts) =>
+              effectFromPromise(() => dependencies.createProvider(provider, opts)).pipe(Effect.map(effectProvider)),
+            observeDns: dependencies.observeDns
+              ? (fqdn, target, elapsedMs) =>
+                  effectFromPromise(() => dependencies.observeDns?.(fqdn, target, elapsedMs) ?? Promise.resolve([]))
+              : undefined,
+            resolveTarget: (targetInput) => effectFromPromise(() => dependencies.resolveTarget(targetInput)),
+          }
+        : undefined,
+    ),
+  )
 
 const zone: DnsZone = { id: 'zone-1', name: 'example.com' }
 
-function providerWith(conflicts: DnsChangePlan['conflicts'] = []): DnsProvider {
+function providerWith(conflicts: DnsChangePlan['conflicts'] = []): PromiseDnsProvider {
   let records: DnsChangePlan['existing'] = []
   return {
     id: 'test',

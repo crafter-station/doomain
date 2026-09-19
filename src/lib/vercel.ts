@@ -1,4 +1,7 @@
+import { Effect } from 'effect'
+
 import { loadConfig } from './config.js'
+import type { DoomainEffect } from './effect.js'
 import { DoomainError } from './errors.js'
 import { listGlobalVercelTokens } from './vercel-auth.js'
 
@@ -65,19 +68,23 @@ interface VercelTeamsResponse {
   teams: Array<{ id: string; membership?: { role?: string | null }; name?: string | null; slug?: string }>
 }
 
-export async function resolveVercelConfig(): Promise<VercelConfig> {
-  const config = await loadConfig()
-  const token = process.env.VERCEL_TOKEN || config.vercel?.token || (await listGlobalVercelTokens())[0]?.token
-  const teamId = process.env.VERCEL_TEAM_ID || config.vercel?.teamId
+export function resolveVercelConfig(): DoomainEffect<VercelConfig> {
+  return Effect.gen(function* () {
+    const config = yield* loadConfig()
+    const token = process.env.VERCEL_TOKEN || config.vercel?.token || (yield* listGlobalVercelTokens())[0]?.token
+    const teamId = process.env.VERCEL_TEAM_ID || config.vercel?.teamId
 
-  if (!token) {
-    throw new DoomainError(
-      'MISSING_CREDENTIALS',
-      'Missing Vercel token. Run `doomain auth vercel`, set VERCEL_TOKEN, or sign in with Vercel CLI.',
-    )
-  }
+    if (!token) {
+      return yield* Effect.fail(
+        new DoomainError(
+          'MISSING_CREDENTIALS',
+          'Missing Vercel token. Run `doomain auth vercel`, set VERCEL_TOKEN, or sign in with Vercel CLI.',
+        ),
+      )
+    }
 
-  return { token, teamId }
+    return { token, teamId }
+  })
 }
 
 function appendTeam(path: string, teamId?: string): string {
@@ -128,178 +135,221 @@ function findProjectDomainTarget(raw: unknown, domain: string): unknown {
 }
 
 export function createVercelClient(config: VercelConfig) {
-  async function request<T>(path: string, init: RequestInit = {}, opts: { team?: boolean } = {}): Promise<T> {
-    const response = await fetch(`${VERCEL_API_URL}${opts.team === false ? path : appendTeam(path, config.teamId)}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${config.token}`,
-        'Content-Type': 'application/json',
-        ...(init.headers ?? {}),
-      },
-    })
+  function request<T>(path: string, init: RequestInit = {}, opts: { team?: boolean } = {}): DoomainEffect<T> {
+    return Effect.gen(function* () {
+      const response = yield* Effect.tryPromise({
+        try: (signal) =>
+          fetch(`${VERCEL_API_URL}${opts.team === false ? path : appendTeam(path, config.teamId)}`, {
+            ...init,
+            headers: {
+              Authorization: `Bearer ${config.token}`,
+              'Content-Type': 'application/json',
+              ...(init.headers ?? {}),
+            },
+            signal: init.signal ?? signal,
+          }),
+        catch: (cause) => new DoomainError('DOMAIN_LINK_FAILED', 'Vercel API request failed.', cause),
+      })
+      const body = yield* Effect.tryPromise(() => response.json()).pipe(
+        Effect.catchAll(() => Effect.succeed(undefined)),
+      )
 
-    if (!response.ok) {
-      const body = (await response.json().catch(() => undefined)) as VercelApiErrorBody | undefined
-      if (response.status === 401) {
-        throw new DoomainError('VERCEL_AUTH_FAILED', vercelAuthErrorMessage(body), body)
+      if (!response.ok) {
+        if (response.status === 401) {
+          return yield* Effect.fail(
+            new DoomainError(
+              'VERCEL_AUTH_FAILED',
+              vercelAuthErrorMessage(body as VercelApiErrorBody | undefined),
+              body,
+            ),
+          )
+        }
+
+        return yield* Effect.fail(
+          new DoomainError(
+            'DOMAIN_LINK_FAILED',
+            apiErrorMessage(response.status, body as VercelApiErrorBody | undefined),
+            body,
+          ),
+        )
       }
 
-      throw new DoomainError('DOMAIN_LINK_FAILED', apiErrorMessage(response.status, body), body)
-    }
-
-    if (response.status === 204) return undefined as T
-    return (await response.json().catch(() => undefined)) as T
+      if (response.status === 204) return undefined as T
+      return body as T
+    })
   }
 
   return {
-    async listTeams(): Promise<VercelTeam[]> {
-      const teamsById = new Map<string, VercelTeam>()
-      const seenCursors = new Set<string>()
-      let cursor: string | undefined
+    listTeams(): DoomainEffect<VercelTeam[]> {
+      return Effect.gen(function* () {
+        const teamsById = new Map<string, VercelTeam>()
+        const seenCursors = new Set<string>()
+        let cursor: string | undefined
 
-      for (let page = 0; page < 25; page += 1) {
-        const query = new URLSearchParams({ limit: '100' })
-        if (cursor) query.set('until', cursor)
+        for (let page = 0; page < 25; page += 1) {
+          const query = new URLSearchParams({ limit: '100' })
+          if (cursor) query.set('until', cursor)
 
-        const result = await request<VercelTeamsResponse>(`/v2/teams?${query.toString()}`, {}, { team: false })
+          const result = yield* request<VercelTeamsResponse>(`/v2/teams?${query.toString()}`, {}, { team: false })
 
-        for (const team of result.teams) {
-          teamsById.set(team.id, {
-            id: team.id,
-            name: team.name ?? null,
-            role: team.membership?.role ?? null,
-            slug: team.slug ?? team.id,
-          })
+          for (const team of result.teams) {
+            teamsById.set(team.id, {
+              id: team.id,
+              name: team.name ?? null,
+              role: team.membership?.role ?? null,
+              slug: team.slug ?? team.id,
+            })
+          }
+
+          const next = result.pagination?.next?.toString()
+          if (!next || seenCursors.has(next)) break
+
+          seenCursors.add(next)
+          cursor = next
         }
 
-        const next = result.pagination?.next?.toString()
-        if (!next || seenCursors.has(next)) break
-
-        seenCursors.add(next)
-        cursor = next
-      }
-
-      return [...teamsById.values()].sort((a, b) => (a.name ?? a.slug).localeCompare(b.name ?? b.slug))
+        return [...teamsById.values()].sort((a, b) => (a.name ?? a.slug).localeCompare(b.name ?? b.slug))
+      })
     },
 
-    async listProjects(search?: string): Promise<VercelProject[]> {
-      const projectsById = new Map<string, VercelProject>()
-      const seenCursors = new Set<string>()
-      let cursor: string | undefined
+    listProjects(search?: string): DoomainEffect<VercelProject[]> {
+      return Effect.gen(function* () {
+        const projectsById = new Map<string, VercelProject>()
+        const seenCursors = new Set<string>()
+        let cursor: string | undefined
 
-      for (let page = 0; page < 25; page += 1) {
-        const query = new URLSearchParams({ limit: '100' })
-        if (search) query.set('search', search)
-        if (cursor) query.set('from', cursor)
+        for (let page = 0; page < 25; page += 1) {
+          const query = new URLSearchParams({ limit: '100' })
+          if (search) query.set('search', search)
+          if (cursor) query.set('from', cursor)
 
-        const result = await request<VercelProjectsResponse>(`/v9/projects?${query.toString()}`)
+          const result = yield* request<VercelProjectsResponse>(`/v9/projects?${query.toString()}`)
 
-        for (const project of result.projects) {
-          projectsById.set(project.id, {
-            id: project.id,
-            name: project.name,
-            framework: project.framework ?? null,
-            updatedAt: project.updatedAt ?? null,
-          })
+          for (const project of result.projects) {
+            projectsById.set(project.id, {
+              id: project.id,
+              name: project.name,
+              framework: project.framework ?? null,
+              updatedAt: project.updatedAt ?? null,
+            })
+          }
+
+          const next = result.pagination?.next?.toString()
+          if (!next || seenCursors.has(next)) break
+
+          seenCursors.add(next)
+          cursor = next
         }
 
-        const next = result.pagination?.next?.toString()
-        if (!next || seenCursors.has(next)) break
-
-        seenCursors.add(next)
-        cursor = next
-      }
-
-      return [...projectsById.values()].sort((a, b) => a.name.localeCompare(b.name))
+        return [...projectsById.values()].sort((a, b) => a.name.localeCompare(b.name))
+      })
     },
 
-    async addDomainToProject(
+    addDomainToProject(
       project: string,
       domain: string,
       opts: { force?: boolean } = {},
-    ): Promise<{ alreadyAdded: boolean; raw?: unknown }> {
-      try {
-        const raw = await request<VercelAddDomainResponse>(`/v10/projects/${encodeURIComponent(project)}/domains`, {
-          method: 'POST',
-          body: JSON.stringify({ name: domain }),
-        })
-        const projectDomain = findProjectDomainTarget(raw, domain)
-        if (!projectDomain) {
-          throw new DoomainError(
-            'DOMAIN_LINK_FAILED',
-            `Vercel did not return ${domain} after adding it to project ${project}.`,
-            raw,
-          )
+    ): DoomainEffect<{ alreadyAdded: boolean; raw?: unknown }> {
+      return Effect.gen(this, function* () {
+        const attempted = yield* Effect.either(
+          request<VercelAddDomainResponse>(`/v10/projects/${encodeURIComponent(project)}/domains`, {
+            method: 'POST',
+            body: JSON.stringify({ name: domain }),
+          }),
+        )
+        if (attempted._tag === 'Right') {
+          const raw = attempted.right
+          const projectDomain = findProjectDomainTarget(raw, domain)
+          if (!projectDomain) {
+            return yield* Effect.fail(
+              new DoomainError(
+                'DOMAIN_LINK_FAILED',
+                `Vercel did not return ${domain} after adding it to project ${project}.`,
+                raw,
+              ),
+            )
+          }
+
+          return { alreadyAdded: false, raw: projectDomain }
         }
 
-        return { alreadyAdded: false, raw: projectDomain }
-      } catch (error) {
+        const error = attempted.left
         if (isDomainConflictError(error)) {
-          const projectDomain = await this.getProjectDomain(project, domain).catch(() => undefined)
+          const projectDomain = yield* this.getProjectDomain(project, domain).pipe(
+            Effect.catchAll(() => Effect.succeed(undefined)),
+          )
           if (projectDomain) return { alreadyAdded: true, raw: projectDomain }
 
           if (opts.force) {
-            const owner = await this.findProjectDomainOwner(domain)
+            const owner = yield* this.findProjectDomainOwner(domain)
             if (owner && owner.project.id !== project) {
-              await this.removeDomainFromProject(owner.project.id, domain)
-              return this.addDomainToProject(project, domain)
+              yield* this.removeDomainFromProject(owner.project.id, domain)
+              return yield* this.addDomainToProject(project, domain)
             }
           }
 
-          throw new DoomainError(
-            'DOMAIN_ALREADY_ASSIGNED',
-            `Vercel reports ${domain} is already assigned to another project. Re-run with --force if you intend to move it to ${project}.`,
-            error instanceof DoomainError ? error.details : undefined,
+          return yield* Effect.fail(
+            new DoomainError(
+              'DOMAIN_ALREADY_ASSIGNED',
+              `Vercel reports ${domain} is already assigned to another project. Re-run with --force if you intend to move it to ${project}.`,
+              error.details,
+            ),
           )
         }
 
-        throw error
-      }
+        return yield* Effect.fail(error)
+      })
     },
 
-    async findProjectDomainOwner(domain: string): Promise<VercelProjectDomainOwner | undefined> {
-      for (const project of await this.listProjects()) {
-        const domains = await this.listProjectDomains(project.id).catch(() => [])
-        const match = domains.find((item) => isSameDomain(item.name, domain))
-        if (match) return { domain: match, project }
-      }
+    findProjectDomainOwner(domain: string): DoomainEffect<VercelProjectDomainOwner | undefined> {
+      return Effect.gen(this, function* () {
+        for (const project of yield* this.listProjects()) {
+          const domains = yield* this.listProjectDomains(project.id).pipe(Effect.catchAll(() => Effect.succeed([])))
+          const match = domains.find((item) => isSameDomain(item.name, domain))
+          if (match) return { domain: match, project }
+        }
 
-      return undefined
+        return undefined
+      })
     },
 
-    async getDomainConfig(domain: string): Promise<Record<string, unknown>> {
+    getDomainConfig(domain: string): DoomainEffect<Record<string, unknown>> {
       return request<Record<string, unknown>>(`/v6/domains/${encodeURIComponent(domain)}/config`)
     },
 
-    async getRecommendedCname(domain: string): Promise<string> {
-      const config = await this.getDomainConfig(domain).catch(() => undefined)
-      const recommended = (config?.recommendedCNAME as Array<{ rank?: number; value?: string }> | undefined)?.sort(
-        (a, b) => (a.rank ?? 999) - (b.rank ?? 999),
-      )[0]
-
-      return recommended?.value?.replace(/\.$/, '') || VERCEL_CNAME_RECORD
+    getRecommendedCname(domain: string): DoomainEffect<string> {
+      return this.getDomainConfig(domain).pipe(
+        Effect.catchAll(() => Effect.succeed(undefined)),
+        Effect.map((domainConfig) => {
+          const recommended = (
+            domainConfig?.recommendedCNAME as Array<{ rank?: number; value?: string }> | undefined
+          )?.sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999))[0]
+          return recommended?.value?.replace(/\.$/, '') || VERCEL_CNAME_RECORD
+        }),
+      )
     },
 
-    async getProjectDomain(project: string, domain: string): Promise<Record<string, unknown>> {
+    getProjectDomain(project: string, domain: string): DoomainEffect<Record<string, unknown>> {
       return request<Record<string, unknown>>(
         `/v9/projects/${encodeURIComponent(project)}/domains/${encodeURIComponent(domain)}`,
       )
     },
 
-    async listProjectDomains(
+    listProjectDomains(
       project: string,
-    ): Promise<Array<Record<string, unknown> & { name?: string; projectId?: string }>> {
-      const result = await request<VercelProjectDomainsResponse>(`/v9/projects/${encodeURIComponent(project)}/domains`)
-      return result.domains ?? []
+    ): DoomainEffect<Array<Record<string, unknown> & { name?: string; projectId?: string }>> {
+      return request<VercelProjectDomainsResponse>(`/v9/projects/${encodeURIComponent(project)}/domains`).pipe(
+        Effect.map((result) => result.domains ?? []),
+      )
     },
 
-    async removeDomainFromProject(project: string, domain: string): Promise<void> {
-      await request(`/v9/projects/${encodeURIComponent(project)}/domains/${encodeURIComponent(domain)}`, {
+    removeDomainFromProject(project: string, domain: string): DoomainEffect<void> {
+      return request(`/v9/projects/${encodeURIComponent(project)}/domains/${encodeURIComponent(domain)}`, {
         method: 'DELETE',
-      })
+      }).pipe(Effect.asVoid)
     },
 
-    async verifyProjectDomain(project: string, domain: string): Promise<Record<string, unknown>> {
+    verifyProjectDomain(project: string, domain: string): DoomainEffect<Record<string, unknown>> {
       return request<Record<string, unknown>>(
         `/v9/projects/${encodeURIComponent(project)}/domains/${encodeURIComponent(domain)}/verify`,
         { method: 'POST' },

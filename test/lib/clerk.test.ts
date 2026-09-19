@@ -4,9 +4,26 @@ import { join } from 'node:path'
 
 import { expect } from 'chai'
 
-import { createClerkPlatformClient, resolveClerkPlatformConfig } from '../../src/lib/clerk.js'
-import { saveConfig } from '../../src/lib/config.js'
+import {
+  createClerkPlatformClient as createClerkEffectClient,
+  resolveClerkPlatformConfig as resolveClerkPlatformConfigEffect,
+} from '../../src/lib/clerk.js'
+import { saveConfig as saveConfigEffect } from '../../src/lib/config.js'
 import { DoomainError } from '../../src/lib/errors.js'
+import { runEffect } from '../helpers/effect.js'
+
+const saveConfig = (...args: Parameters<typeof saveConfigEffect>) => runEffect(saveConfigEffect(...args))
+const resolveClerkPlatformConfig = (...args: Parameters<typeof resolveClerkPlatformConfigEffect>) =>
+  runEffect(resolveClerkPlatformConfigEffect(...args))
+const createClerkPlatformClient = (...args: Parameters<typeof createClerkEffectClient>) => {
+  const client = createClerkEffectClient(...args)
+  return {
+    createProductionInstance: (...methodArgs: Parameters<typeof client.createProductionInstance>) =>
+      runEffect(client.createProductionInstance(...methodArgs)),
+    fetchApplication: (...methodArgs: Parameters<typeof client.fetchApplication>) =>
+      runEffect(client.fetchApplication(...methodArgs)),
+  }
+}
 
 describe('clerk platform client', () => {
   const originalFetch = globalThis.fetch

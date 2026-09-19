@@ -1,3 +1,5 @@
+import type { DoomainEffect } from '../../effect.js'
+
 export type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT'
 
 export interface CredentialDefinition {
@@ -106,14 +108,14 @@ export interface DnsProvider {
   capabilities: ProviderCapabilities
   id: string
   name: string
-  applyChanges(zone: DnsZone, plan: DnsChangePlan, opts?: ApplyOptions): Promise<DnsChangeResult>
-  deleteRecord(zone: DnsZone, record: DnsRecord): Promise<void>
-  getZone(domain: string): Promise<DnsZone | null>
-  listRecords(zone: DnsZone): Promise<DnsRecord[]>
-  listZones(input?: ListZonesInput): Promise<DnsZone[]>
-  planChanges(zone: DnsZone, desired: DnsRecordInput[], opts?: PlanOptions): Promise<DnsChangePlan>
-  upsertRecord(zone: DnsZone, record: DnsRecordInput): Promise<DnsRecord>
-  verifyCredentials(): Promise<ProviderHealth>
+  applyChanges(zone: DnsZone, plan: DnsChangePlan, opts?: ApplyOptions): DoomainEffect<DnsChangeResult>
+  deleteRecord(zone: DnsZone, record: DnsRecord): DoomainEffect<void>
+  getZone(domain: string): DoomainEffect<DnsZone | null>
+  listRecords(zone: DnsZone): DoomainEffect<DnsRecord[]>
+  listZones(input?: ListZonesInput): DoomainEffect<DnsZone[]>
+  planChanges(zone: DnsZone, desired: DnsRecordInput[], opts?: PlanOptions): DoomainEffect<DnsChangePlan>
+  upsertRecord(zone: DnsZone, record: DnsRecordInput): DoomainEffect<DnsRecord>
+  verifyCredentials(): DoomainEffect<ProviderHealth>
 }
 
 export interface DnsProviderDefinition {

@@ -1,6 +1,7 @@
 import { expect } from 'chai'
 
 import { createProvider } from '../../src/lib/providers/registry.js'
+import { promiseProvider, runEffect } from '../helpers/effect.js'
 
 function cloudflareResponse<T>(result: T, resultInfo: Record<string, unknown> = {}) {
   return { errors: [], messages: [], result, result_info: resultInfo, success: true }
@@ -37,7 +38,7 @@ describe('cloudflare provider', () => {
       )
     }) as typeof fetch
 
-    const provider = await createProvider('cloudflare')
+    const provider = promiseProvider(await runEffect(createProvider('cloudflare')))
     const zones = await provider.listZones()
 
     expect(pages).to.deep.equal(['1', '2'])
@@ -67,7 +68,7 @@ describe('cloudflare provider', () => {
         ),
       )) as typeof fetch
 
-    const provider = await createProvider('cloudflare')
+    const provider = promiseProvider(await runEffect(createProvider('cloudflare')))
     const records = await provider.listRecords({ id: 'zone_1', name: 'example.com' })
 
     expect(records).to.deep.equal([
@@ -145,7 +146,7 @@ describe('cloudflare provider', () => {
       )
     }) as typeof fetch
 
-    const provider = await createProvider('cloudflare')
+    const provider = promiseProvider(await runEffect(createProvider('cloudflare')))
     const zone = { id: 'zone_1', name: 'example.com' }
     const plan = await provider.planChanges(zone, [
       { name: 'app', proxied: false, ttl: 3600, type: 'CNAME', value: 'cname.vercel-dns.com' },
@@ -194,7 +195,7 @@ describe('cloudflare provider', () => {
       )
     }) as typeof fetch
 
-    const provider = await createProvider('cloudflare')
+    const provider = promiseProvider(await runEffect(createProvider('cloudflare')))
     const zone = { id: 'zone_1', name: 'example.com' }
     const plan = await provider.planChanges(zone, [
       { name: 'app', proxied: false, ttl: 3600, type: 'CNAME', value: 'cname.vercel-dns.com' },
@@ -215,7 +216,7 @@ describe('cloudflare provider', () => {
       return jsonResponse(cloudflareResponse({ id: 'record_1' }))
     }) as typeof fetch
 
-    const provider = await createProvider('cloudflare')
+    const provider = promiseProvider(await runEffect(createProvider('cloudflare')))
     await provider.deleteRecord(
       { id: 'zone_1', name: 'example.com' },
       { id: 'record_1', name: 'app', type: 'CNAME', value: 'old.example.com' },
@@ -233,7 +234,7 @@ describe('cloudflare provider', () => {
         success: false,
       })) as typeof fetch
 
-    const provider = await createProvider('cloudflare')
+    const provider = promiseProvider(await runEffect(createProvider('cloudflare')))
     let error: unknown
 
     try {

@@ -1,6 +1,7 @@
 import { Command, Flags } from '@oclif/core'
 
 import { jsonFlag } from '../../lib/flags.js'
+import { runDoomainEffect } from '../../lib/effect.js'
 import { createOutput } from '../../lib/output.js'
 import { listProviderStatuses, type ProviderStatus } from '../../lib/providers/status.js'
 
@@ -25,7 +26,7 @@ export default class ProvidersStatus extends Command {
     const spinner = out.json || flags['no-verify'] ? undefined : out.spinner()
 
     spinner?.start('Checking DNS providers')
-    const providers = await listProviderStatuses({ verify: !flags['no-verify'] })
+    const providers = await runDoomainEffect(listProviderStatuses({ verify: !flags['no-verify'] }))
     spinner?.stop('Checked DNS providers')
 
     for (const provider of providers) {

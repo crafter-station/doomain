@@ -1,6 +1,7 @@
 import { Args, Command } from '@oclif/core'
 
 import { getCommandSchemaForAgents } from '../lib/command-schema.js'
+import { runDoomainEffect } from '../lib/effect.js'
 import { jsonFlag } from '../lib/flags.js'
 import { createOutput, outputError } from '../lib/output.js'
 
@@ -20,7 +21,7 @@ export default class Schema extends Command {
     const out = createOutput({ json: flags.json })
 
     try {
-      const schema = await getCommandSchemaForAgents(args.command)
+      const schema = await runDoomainEffect(getCommandSchemaForAgents(args.command))
       if (!schema) throw new Error(`Unknown command schema: ${args.command}`)
       if (!out.json) out.info(JSON.stringify(schema, null, 2))
       out.result(schema)

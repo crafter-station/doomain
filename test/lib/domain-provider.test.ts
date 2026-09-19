@@ -7,6 +7,7 @@ import { expect } from 'chai'
 import { findDomainProvider } from '../../src/index.js'
 import { saveConfig } from '../../src/lib/config.js'
 import { resolveProviderTarget } from '../../src/lib/domain-provider.js'
+import { runEffect } from '../helpers/effect.js'
 
 function jsonResponse(body: unknown, status = 200): Response {
   return { json: async () => body, ok: status >= 200 && status < 300, status } as Response
@@ -29,14 +30,16 @@ describe('findDomainProvider', () => {
   })
 
   it('finds a matching configured provider account when another provider fails', async () => {
-    await saveConfig({
-      providers: {
-        hostinger: { credentials: { apiToken: 'expired_token' } },
-        spaceship: {
-          accounts: { personal: { credentials: { apiKey: 'personal_key', apiSecret: 'personal_secret' } } },
+    await runEffect(
+      saveConfig({
+        providers: {
+          hostinger: { credentials: { apiToken: 'expired_token' } },
+          spaceship: {
+            accounts: { personal: { credentials: { apiKey: 'personal_key', apiSecret: 'personal_secret' } } },
+          },
         },
-      },
-    })
+      }),
+    )
 
     globalThis.fetch = (async (input) => {
       const url = new URL(String(input))
@@ -52,7 +55,7 @@ describe('findDomainProvider', () => {
       throw new Error(`Unexpected request: ${url.href}`)
     }) as typeof fetch
 
-    const result = await findDomainProvider({ domain: 'api.hacktheandes.com' })
+    const result = await runEffect(findDomainProvider({ domain: 'api.hacktheandes.com' }))
 
     expect(result).to.deep.equal({
       account: 'personal',
@@ -82,14 +85,16 @@ describe('findDomainProvider', () => {
   })
 
   it('continues across accounts when discovery is limited to one provider', async () => {
-    await saveConfig({
-      providers: {
-        spaceship: {
-          accounts: { work: { credentials: { apiKey: 'work_key', apiSecret: 'work_secret' } } },
-          credentials: { apiKey: 'expired_key', apiSecret: 'expired_secret' },
+    await runEffect(
+      saveConfig({
+        providers: {
+          spaceship: {
+            accounts: { work: { credentials: { apiKey: 'work_key', apiSecret: 'work_secret' } } },
+            credentials: { apiKey: 'expired_key', apiSecret: 'expired_secret' },
+          },
         },
-      },
-    })
+      }),
+    )
 
     globalThis.fetch = (async (input, init) => {
       const url = new URL(String(input))
@@ -104,7 +109,7 @@ describe('findDomainProvider', () => {
       throw new Error(`Unexpected request: ${url.href}`)
     }) as typeof fetch
 
-    const result = await findDomainProvider({ domain: 'api.example.com', provider: 'spaceship' })
+    const result = await runEffect(findDomainProvider({ domain: 'api.example.com', provider: 'spaceship' }))
 
     expect(result.provider).to.equal('spaceship')
     expect(result.account).to.equal('work')
@@ -125,14 +130,16 @@ describe('findDomainProvider', () => {
   })
 
   it('can report the unique healthy account during tolerant read-only discovery', async () => {
-    await saveConfig({
-      providers: {
-        spaceship: {
-          accounts: { personal: { credentials: { apiKey: 'personal_key', apiSecret: 'personal_secret' } } },
-          credentials: { apiKey: 'expired_key', apiSecret: 'expired_secret' },
+    await runEffect(
+      saveConfig({
+        providers: {
+          spaceship: {
+            accounts: { personal: { credentials: { apiKey: 'personal_key', apiSecret: 'personal_secret' } } },
+            credentials: { apiKey: 'expired_key', apiSecret: 'expired_secret' },
+          },
         },
-      },
-    })
+      }),
+    )
 
     globalThis.fetch = (async (input, init) => {
       const url = new URL(String(input))
@@ -145,9 +152,11 @@ describe('findDomainProvider', () => {
       throw new Error(`Unexpected request: ${url.href}`)
     }) as typeof fetch
 
-    const result = await resolveProviderTarget(
-      { domain: 'app.example.com', provider: 'spaceship' },
-      { tolerateProviderAccountErrors: true },
+    const result = await runEffect(
+      resolveProviderTarget(
+        { domain: 'app.example.com', provider: 'spaceship' },
+        { tolerateProviderAccountErrors: true },
+      ),
     )
 
     expect(result.account).to.equal('personal')

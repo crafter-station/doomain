@@ -1,3 +1,6 @@
+import { Effect } from 'effect'
+
+import type { DoomainEffect } from '../../effect.js'
 import { ProviderError, providerCodeFromStatus } from './errors.js'
 
 export interface ProviderHttpClientOptions {
@@ -28,31 +31,46 @@ function appendQuery(path: string, query?: ProviderRequestOptions['query']): str
 export class ProviderHttpClient {
   constructor(private readonly opts: ProviderHttpClientOptions) {}
 
-  async request<T>(path: string, init: ProviderRequestOptions = {}): Promise<T> {
-    const { body, headers, query, ...rest } = init
-    const response = await fetch(`${this.opts.baseUrl}${appendQuery(path, query)}`, {
-      ...rest,
-      body: body === undefined ? undefined : JSON.stringify(body),
-      headers: {
-        'Content-Type': 'application/json',
-        ...this.opts.headers,
-        ...(headers as Record<string, string> | undefined),
-      },
-      signal: init.signal ?? this.opts.signal,
+  request<T>(path: string, init: ProviderRequestOptions = {}): DoomainEffect<T> {
+    return Effect.gen(this, function* () {
+      const { body, headers, query, ...rest } = init
+      const response = yield* Effect.tryPromise({
+        try: (signal) =>
+          fetch(`${this.opts.baseUrl}${appendQuery(path, query)}`, {
+            ...rest,
+            body: body === undefined ? undefined : JSON.stringify(body),
+            headers: {
+              'Content-Type': 'application/json',
+              ...this.opts.headers,
+              ...(headers as Record<string, string> | undefined),
+            },
+            signal: init.signal ?? this.opts.signal ?? signal,
+          }),
+        catch: (cause) =>
+          new ProviderError(
+            this.opts.providerId,
+            'PROVIDER_API_ERROR',
+            `${this.opts.providerId} request failed.`,
+            cause,
+          ),
+      })
+
+      const parseJson = Effect.tryPromise(() => response.json()).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+      if (!response.ok) {
+        const details = yield* parseJson
+        return yield* Effect.fail(
+          new ProviderError(
+            this.opts.providerId,
+            providerCodeFromStatus(response.status),
+            this.opts.errorMessages?.[response.status] ?? `${this.opts.providerId} API error (${response.status}).`,
+            details,
+          ),
+        )
+      }
+
+      if (response.status === 204) return undefined as T
+      return (yield* parseJson) as T
     })
-
-    if (!response.ok) {
-      const details = await response.json().catch(() => undefined)
-      throw new ProviderError(
-        this.opts.providerId,
-        providerCodeFromStatus(response.status),
-        this.opts.errorMessages?.[response.status] ?? `${this.opts.providerId} API error (${response.status}).`,
-        details,
-      )
-    }
-
-    if (response.status === 204) return undefined as T
-    return (await response.json().catch(() => undefined)) as T
   }
 }
 

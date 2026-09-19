@@ -1,3 +1,6 @@
+import { Effect } from 'effect'
+
+import type { DoomainEffect } from '../../effect.js'
 import { ProviderError } from './errors.js'
 import type { DnsChange, DnsChangePlan, DnsConflict, DnsRecord, DnsRecordInput, DnsZone, PlanOptions } from './types.js'
 
@@ -100,39 +103,42 @@ export function planDnsChanges(input: {
   return { changes, conflicts, desired: input.desired, existing: input.existing, zone: input.zone }
 }
 
-export function assertNoConflicts(providerId: string, plan: DnsChangePlan): void {
-  if (plan.conflicts.length === 0) return
-  throw new ProviderError(
-    providerId,
-    'PROVIDER_RECORD_CONFLICT',
-    'DNS record conflicts must be resolved before applying changes.',
-    {
-      conflicts: plan.conflicts,
-    },
+export function assertNoConflicts(providerId: string, plan: DnsChangePlan): DoomainEffect<void> {
+  if (plan.conflicts.length === 0) return Effect.void
+  return Effect.fail(
+    new ProviderError(
+      providerId,
+      'PROVIDER_RECORD_CONFLICT',
+      'DNS record conflicts must be resolved before applying changes.',
+      {
+        conflicts: plan.conflicts,
+      },
+    ),
   )
 }
 
-export async function applyDnsChanges(input: {
-  deleteRecord(record: DnsRecord): Promise<void>
+export function applyDnsChanges(input: {
+  deleteRecord(record: DnsRecord): DoomainEffect<void>
   plan: DnsChangePlan
   providerId: string
-  upsertRecord(record: DnsRecordInput): Promise<DnsRecord>
+  upsertRecord(record: DnsRecordInput): DoomainEffect<DnsRecord>
   opts?: PlanOptions
-}) {
-  assertNoConflicts(input.providerId, input.plan)
-  const applied: DnsChange[] = []
-  const skipped: DnsRecordInput[] = []
+}): DoomainEffect<{ applied: DnsChange[]; skipped: DnsRecordInput[] }> {
+  return Effect.gen(function* () {
+    yield* assertNoConflicts(input.providerId, input.plan)
+    const applied: DnsChange[] = []
+    const skipped: DnsRecordInput[] = []
 
-  for (const change of input.plan.changes) {
-    if (change.action === 'skip') {
-      skipped.push(change.record)
-      continue
+    for (const change of input.plan.changes) {
+      if (change.action === 'skip') {
+        skipped.push(change.record)
+        continue
+      }
+
+      yield* change.action === 'delete' ? input.deleteRecord(change.existing) : input.upsertRecord(change.record)
+      applied.push(change)
     }
 
-    await (change.action === 'delete' ? input.deleteRecord(change.existing) : input.upsertRecord(change.record))
-
-    applied.push(change)
-  }
-
-  return { applied, skipped }
+    return { applied, skipped }
+  })
 }

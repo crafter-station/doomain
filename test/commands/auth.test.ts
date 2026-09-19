@@ -6,6 +6,7 @@ import { runCommand } from '@oclif/test'
 import { expect } from 'chai'
 
 import { loadConfig, saveConfig } from '../../src/lib/config.js'
+import { runEffect } from '../helpers/effect.js'
 
 describe('auth', () => {
   const env = { ...process.env }
@@ -26,15 +27,17 @@ describe('auth', () => {
   })
 
   it('logs out of saved Vercel credentials without removing providers', async () => {
-    await saveConfig({
-      defaults: { domain: 'example.com', provider: 'cloudflare' },
-      providers: { cloudflare: { credentials: { accountId: 'account_123', apiToken: 'cloudflare_token' } } },
-      vercel: { teamId: 'team_123', token: 'vercel_token' },
-    })
+    await runEffect(
+      saveConfig({
+        defaults: { domain: 'example.com', provider: 'cloudflare' },
+        providers: { cloudflare: { credentials: { accountId: 'account_123', apiToken: 'cloudflare_token' } } },
+        vercel: { teamId: 'team_123', token: 'vercel_token' },
+      }),
+    )
 
     const { stdout } = await runCommand('auth logout vercel --json')
     const result = JSON.parse(stdout) as { data: { removed: boolean; service: string }; ok: boolean }
-    const config = await loadConfig()
+    const config = await runEffect(loadConfig())
 
     expect(result.ok).to.equal(true)
     expect(result.data.service).to.equal('vercel')
@@ -52,7 +55,7 @@ describe('auth', () => {
 
     const { stdout } = await runCommand('auth vercel --json')
     const result = JSON.parse(stdout) as { data: { vercel: { teamId?: string; token?: string } }; ok: boolean }
-    const config = await loadConfig()
+    const config = await runEffect(loadConfig())
 
     expect(result.ok).to.equal(true)
     expect(result.data.vercel).to.deep.equal({ teamId: 'team_env', token: 'env_...oken' })
@@ -69,7 +72,7 @@ describe('auth', () => {
     try {
       const { stdout } = await runCommand('auth clerk --json')
       const result = JSON.parse(stdout) as { data: { clerk: { appId: string; platformApiKey: string } }; ok: boolean }
-      const config = await loadConfig()
+      const config = await runEffect(loadConfig())
 
       expect(result.ok).to.equal(true)
       expect(result.data.clerk).to.deep.equal({ appId: 'app_123', platformApiKey: 'ak_e...oken' })

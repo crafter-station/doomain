@@ -497,18 +497,22 @@ export function getCommandSchema(name?: string): CommandSchema[] | CommandSchema
   return commandSchemas.find((schema) => schema.name === name)
 }
 
-async function configuredProviders(): Promise<ProviderConnectionStatus[]> {
-  return (await listProviderStatuses({ verify: false })).map((provider) => ({
-    account: provider.account,
-    accountLabel: provider.accountLabel,
-    configured: provider.configured,
-    default: provider.default,
-    displayName: provider.displayName,
-    docsUrl: provider.docsUrl,
-    id: provider.id,
-    isDefaultAccount: provider.isDefaultAccount,
-    isPreferredProvider: provider.isPreferredProvider,
-  }))
+function configuredProviders(): DoomainEffect<ProviderConnectionStatus[]> {
+  return listProviderStatuses({ verify: false }).pipe(
+    Effect.map((providers) =>
+      providers.map((provider) => ({
+        account: provider.account,
+        accountLabel: provider.accountLabel,
+        configured: provider.configured,
+        default: provider.default,
+        displayName: provider.displayName,
+        docsUrl: provider.docsUrl,
+        id: provider.id,
+        isDefaultAccount: provider.isDefaultAccount,
+        isPreferredProvider: provider.isPreferredProvider,
+      })),
+    ),
+  )
 }
 
 function withProviderConnections(schema: CommandSchema, providers: ProviderConnectionStatus[]): CommandSchema {
@@ -524,11 +528,18 @@ function withProviderConnections(schema: CommandSchema, providers: ProviderConne
   return { ...schema, configuredProviders: providers }
 }
 
-export async function getCommandSchemaForAgents(name?: string): Promise<CommandSchema[] | CommandSchema | undefined> {
+export function getCommandSchemaForAgents(name?: string): DoomainEffect<CommandSchema[] | CommandSchema | undefined> {
   const schema = getCommandSchema(name)
-  if (!schema) return undefined
+  if (!schema) return Effect.succeed(undefined)
 
-  const providers = await configuredProviders()
-  if (Array.isArray(schema)) return schema.map((item) => withProviderConnections(item, providers))
-  return withProviderConnections(schema, providers)
+  return configuredProviders().pipe(
+    Effect.map((providers) =>
+      Array.isArray(schema)
+        ? schema.map((item) => withProviderConnections(item, providers))
+        : withProviderConnections(schema, providers),
+    ),
+  )
 }
+import { Effect } from 'effect'
+
+import type { DoomainEffect } from './effect.js'

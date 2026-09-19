@@ -2,6 +2,7 @@ import * as p from '@clack/prompts'
 import { Args, Command, Flags } from '@oclif/core'
 
 import { getConfigPath, loadConfig, maskSecret, updateConfig } from '../../lib/config.js'
+import { runDoomainEffect } from '../../lib/effect.js'
 import { accountFlag, jsonFlag } from '../../lib/flags.js'
 import { createOutput, outputError } from '../../lib/output.js'
 import {
@@ -108,7 +109,7 @@ async function confirmProviderAccountOverwrite(definition: DnsProviderDefinition
 }
 
 async function promptProvider(): Promise<DnsProviderDefinition | null> {
-  const config = await loadConfig()
+  const config = await runDoomainEffect(loadConfig())
   const selected = await p.select({
     message: 'Choose DNS provider',
     options: listProviderDefinitions().map((definition) => ({
@@ -169,7 +170,7 @@ export default class ProvidersConnect extends Command {
           : await promptProviderAccount()
       if (!account) return
       const isDefaultAccount = isDefaultProviderAccount(account)
-      const currentConfig = await loadConfig()
+      const currentConfig = await runDoomainEffect(loadConfig())
       if (!out.json && providerAccountHasCredentials(currentConfig, definition.id, account)) {
         const overwrite = await confirmProviderAccountOverwrite(definition, account)
         if (!overwrite) return
@@ -219,7 +220,9 @@ export default class ProvidersConnect extends Command {
       if (!flags['no-verify']) {
         spinner = out.json ? undefined : out.spinner()
         spinner?.start(`Verifying ${definition.displayName} credentials`)
-        const zones = await definition.create({ credentials, debug: process.env.DOOMAIN_DEBUG === '1' }).listZones()
+        const zones = await runDoomainEffect(
+          definition.create({ credentials, debug: process.env.DOOMAIN_DEBUG === '1' }).listZones(),
+        )
         domainCount = zones.length
         spinner?.stop(
           `Verified ${definition.displayName} credentials and found ${domainCount} domain${domainCount === 1 ? '' : 's'}`,
@@ -241,14 +244,16 @@ export default class ProvidersConnect extends Command {
         setDefault = value
       }
 
-      await updateConfig((config) => ({
-        ...config,
-        defaults: setDefault ? { ...config.defaults, provider: definition.id } : config.defaults,
-        providers: {
-          ...config.providers,
-          [definition.id]: withProviderAccountCredentials(config.providers?.[definition.id], account, credentials),
-        },
-      }))
+      await runDoomainEffect(
+        updateConfig((config) => ({
+          ...config,
+          defaults: setDefault ? { ...config.defaults, provider: definition.id } : config.defaults,
+          providers: {
+            ...config.providers,
+            [definition.id]: withProviderAccountCredentials(config.providers?.[definition.id], account, credentials),
+          },
+        })),
+      )
 
       out.result({
         account,

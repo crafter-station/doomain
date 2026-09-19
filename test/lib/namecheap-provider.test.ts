@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { expect } from 'chai'
 
 import { createProvider } from '../../src/lib/providers/registry.js'
+import { promiseProvider, runEffect } from '../helpers/effect.js'
 
 const domainListXml = `<?xml version="1.0" encoding="UTF-8"?>
 <ApiResponse Status="OK">
@@ -64,7 +65,7 @@ describe('namecheap provider', () => {
     globalThis.fetch = (async () =>
       ({ ok: true, status: 200, text: async () => domainListXml }) as Response) as typeof fetch
 
-    const provider = await createProvider('namecheap')
+    const provider = promiseProvider(await runEffect(createProvider('namecheap')))
     const zones = await provider.listZones()
 
     expect(zones).to.deep.equal([{ id: 'example.com', name: 'example.com' }])
@@ -73,7 +74,7 @@ describe('namecheap provider', () => {
   it('lists DNS host records from Namecheap XML', async () => {
     globalThis.fetch = (async () => ({ ok: true, status: 200, text: async () => hostsXml }) as Response) as typeof fetch
 
-    const provider = await createProvider('namecheap')
+    const provider = promiseProvider(await runEffect(createProvider('namecheap')))
     const records = await provider.listRecords({ id: 'example.com', name: 'example.com' })
 
     expect(records).to.deep.equal([
@@ -111,7 +112,7 @@ describe('namecheap provider', () => {
       } as Response
     }) as typeof fetch
 
-    const provider = await createProvider('namecheap')
+    const provider = promiseProvider(await runEffect(createProvider('namecheap')))
     const zone = { id: 'example.com', name: 'example.com' }
     const plan = await provider.planChanges(zone, [
       { name: 'app', type: 'CNAME', value: 'cname.vercel-dns.com', ttl: 1800 },
@@ -143,7 +144,7 @@ describe('namecheap provider', () => {
       } as Response
     }) as typeof fetch
 
-    const provider = await createProvider('namecheap')
+    const provider = promiseProvider(await runEffect(createProvider('namecheap')))
     const zone = { id: 'example.com', name: 'example.com' }
     const plan = await provider.planChanges(zone, [
       { name: 'app', type: 'CNAME', value: 'cname.vercel-dns.com', ttl: 1800 },

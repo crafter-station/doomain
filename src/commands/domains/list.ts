@@ -1,6 +1,7 @@
 import { Command } from '@oclif/core'
 
 import { loadConfig } from '../../lib/config.js'
+import { runDoomainEffect } from '../../lib/effect.js'
 import { accountFlag, domainFlag, jsonFlag, providerFlag } from '../../lib/flags.js'
 import { createOutput, outputError } from '../../lib/output.js'
 import {
@@ -12,13 +13,14 @@ import {
 } from '../../lib/providers/core/config.js'
 import { createProvider, getProviderDefinition } from '../../lib/providers/registry.js'
 import type { DnsZone } from '../../lib/providers/types.js'
+import type { DnsProvider } from '../../lib/providers/types.js'
 import { normalizeDomain } from '../../lib/validate.js'
 
-async function resolveZones(provider: Awaited<ReturnType<typeof createProvider>>, domain?: string): Promise<DnsZone[]> {
-  if (!domain) return provider.listZones()
+async function resolveZones(provider: DnsProvider, domain?: string): Promise<DnsZone[]> {
+  if (!domain) return runDoomainEffect(provider.listZones())
 
   const normalized = normalizeDomain(domain)
-  const zone = await provider.getZone(normalized)
+  const zone = await runDoomainEffect(provider.getZone(normalized))
   if (!zone) throw new Error(`${provider.name} does not have a DNS zone for ${normalized}.`)
   return [zone]
 }
@@ -38,7 +40,7 @@ export default class DomainsList extends Command {
     const out = createOutput({ json: flags.json })
 
     try {
-      const config = await loadConfig()
+      const config = await runDoomainEffect(loadConfig())
       const providerId = flags.provider ?? process.env.DOOMAIN_PROVIDER ?? config.defaults?.provider ?? 'spaceship'
       const definition = getProviderDefinition(providerId)
       const account = flags.account ? normalizeProviderAccount(flags.account) : undefined
@@ -52,11 +54,11 @@ export default class DomainsList extends Command {
       const results = []
 
       for (const selectedAccount of selectedAccounts) {
-        const provider = await createProvider(definition.id, { account: selectedAccount.account })
+        const provider = await runDoomainEffect(createProvider(definition.id, { account: selectedAccount.account }))
         const zones = await resolveZones(provider, flags.domain)
 
         for (const zone of zones) {
-          const records = await provider.listRecords(zone)
+          const records = await runDoomainEffect(provider.listRecords(zone))
           results.push({
             account: selectedAccount.account,
             isDefaultAccount: selectedAccount.isDefaultAccount,

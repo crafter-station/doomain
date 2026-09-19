@@ -1,15 +1,37 @@
 import { strict as assert } from 'node:assert'
 import { describe, it } from 'mocha'
+import { Effect } from 'effect'
 
+import type { ResolvedDnsTarget } from '../../src/lib/domain-provider.js'
 import { DoomainError } from '../../src/lib/errors.js'
-import type { DnsProvider, DnsRecord, DnsZone } from '../../src/lib/providers/types.js'
-import { removeDomain } from '../../src/lib/remove-domain.js'
+import type { DnsRecord, DnsZone } from '../../src/lib/providers/types.js'
+import { type RemoveDomainInput, removeDomain as removeDomainEffect } from '../../src/lib/remove-domain.js'
+import { effectFromPromise, effectProvider, type PromiseDnsProvider, runEffect } from '../helpers/effect.js'
+
+interface TestDependencies {
+  createProvider: (provider: string, opts: { account?: string }) => Promise<PromiseDnsProvider>
+  resolveTarget: (input: Pick<RemoveDomainInput, 'account' | 'domain' | 'provider'>) => Promise<ResolvedDnsTarget>
+}
+
+const removeDomain = (input: RemoveDomainInput, dependencies?: TestDependencies) =>
+  runEffect(
+    removeDomainEffect(
+      input,
+      dependencies
+        ? {
+            createProvider: (provider, opts) =>
+              effectFromPromise(() => dependencies.createProvider(provider, opts)).pipe(Effect.map(effectProvider)),
+            resolveTarget: (targetInput) => effectFromPromise(() => dependencies.resolveTarget(targetInput)),
+          }
+        : undefined,
+    ),
+  )
 
 const zone: DnsZone = { id: 'zone-1', name: 'example.com' }
 
-function providerWith(initial: DnsRecord[]): { provider: DnsProvider; records: () => DnsRecord[] } {
+function providerWith(initial: DnsRecord[]): { provider: PromiseDnsProvider; records: () => DnsRecord[] } {
   let records = [...initial]
-  const provider: DnsProvider = {
+  const provider: PromiseDnsProvider = {
     id: 'test',
     name: 'Test DNS',
     capabilities: {
