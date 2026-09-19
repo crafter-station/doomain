@@ -433,6 +433,39 @@ describe('link', () => {
     })
   })
 
+  it("fails closed when an explicit provider's account cannot be searched", async () => {
+    await saveConfig({
+      providers: {
+        spaceship: {
+          accounts: {work: {credentials: {apiKey: 'work_key', apiSecret: 'work_secret'}}},
+          credentials: {apiKey: 'expired_key', apiSecret: 'expired_secret'},
+        },
+      },
+    })
+
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input))
+      const headers = init?.headers as Record<string, string>
+      if (url.hostname === 'spaceship.dev' && url.pathname === '/api/v1/domains') {
+        return headers['X-Api-Key'] === 'work_key'
+          ? jsonResponse({items: [{name: 'example.com'}], total: 1})
+          : jsonErrorResponse(401, {message: 'Unauthenticated.'})
+      }
+
+      throw new Error(`Unexpected request: ${url.href}`)
+    }) as typeof fetch
+
+    let error: unknown
+    try {
+      await linkDomain({domain: 'app.example.com', dryRun: true, project: 'prj_123', provider: 'spaceship'})
+    } catch (error_) {
+      error = error_
+    }
+
+    expect(error).to.be.instanceOf(DoomainError)
+    expect((error as DoomainError).code).to.equal('PROVIDER_AUTH_FAILED')
+  })
+
   it('uses the longest matching zone across configured provider accounts', async () => {
     await saveConfig({
       providers: {
