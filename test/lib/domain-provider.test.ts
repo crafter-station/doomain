@@ -55,7 +55,7 @@ describe('findDomainProvider', () => {
       throw new Error(`Unexpected request: ${url.href}`)
     }) as typeof fetch
 
-    const result = await runEffect(findDomainProvider({ domain: 'api.hacktheandes.com' }))
+    const result = await findDomainProvider({ domain: 'api.hacktheandes.com' })
 
     expect(result).to.deep.equal({
       account: 'personal',
@@ -109,7 +109,7 @@ describe('findDomainProvider', () => {
       throw new Error(`Unexpected request: ${url.href}`)
     }) as typeof fetch
 
-    const result = await runEffect(findDomainProvider({ domain: 'api.example.com', provider: 'spaceship' }))
+    const result = await findDomainProvider({ domain: 'api.example.com', provider: 'spaceship' })
 
     expect(result.provider).to.equal('spaceship')
     expect(result.account).to.equal('work')

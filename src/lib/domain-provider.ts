@@ -1,7 +1,7 @@
 import { Effect } from 'effect'
 
 import { loadConfig } from './config.js'
-import { type DoomainEffect, trySync } from './effect.js'
+import { type DoomainEffect, runDoomainEffect, trySync } from './effect.js'
 import { DoomainError, type DoomainErrorCode } from './errors.js'
 import {
   DEFAULT_PROVIDER_ACCOUNT,
@@ -402,7 +402,7 @@ function discoveryError(error: DoomainError, domain: string): DoomainError {
 }
 
 /** Find the configured DNS provider account with the longest zone match for a domain. */
-export function findDomainProvider(input: FindDomainProviderInput): DoomainEffect<DomainProviderResult> {
+export function findDomainProviderEffect(input: FindDomainProviderInput): DoomainEffect<DomainProviderResult> {
   return resolveProviderTarget(input, { tolerateProviderAccountErrors: true }).pipe(
     Effect.map((resolved) => ({
       account: resolved.account,
@@ -419,4 +419,9 @@ export function findDomainProvider(input: FindDomainProviderInput): DoomainEffec
     })),
     Effect.mapError((error) => discoveryError(error, input.domain)),
   )
+}
+
+/** Promise facade retained for the package's public programmatic API. */
+export function findDomainProvider(input: FindDomainProviderInput): Promise<DomainProviderResult> {
+  return runDoomainEffect(findDomainProviderEffect(input))
 }
