@@ -265,6 +265,13 @@ export const commandSchemas: CommandSchema[] = [
     flags: [{ name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.' }],
   },
   {
+    name: 'version',
+    description: 'Display the installed doomain version.',
+    examples: ['doomain version'],
+    safeForAgents: true,
+    flags: [],
+  },
+  {
     name: 'update',
     description: 'Install the latest doomain version from npm without using the existing npm cache.',
     examples: ['doomain update', 'doomain update --json'],
