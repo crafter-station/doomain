@@ -150,11 +150,10 @@ export function createVercelClient(config: VercelConfig, clientOpts: { transport
           }),
         catch: (cause) => toDoomainError(cause, clientOpts.transportErrorCode ?? 'DOMAIN_LINK_FAILED'),
       })
-      const body = yield* Effect.tryPromise(() => response.json()).pipe(
-        Effect.catchAll(() => Effect.succeed(undefined)),
-      )
-
       if (!response.ok) {
+        const body = yield* Effect.tryPromise(() => response.json()).pipe(
+          Effect.catchAll(() => Effect.succeed(undefined)),
+        )
         if (response.status === 401) {
           return yield* Effect.fail(
             new DoomainError(
@@ -175,7 +174,10 @@ export function createVercelClient(config: VercelConfig, clientOpts: { transport
       }
 
       if (response.status === 204) return undefined as T
-      return body as T
+      return (yield* Effect.tryPromise({
+        try: () => response.json(),
+        catch: (cause) => toDoomainError(cause, clientOpts.transportErrorCode ?? 'DOMAIN_LINK_FAILED'),
+      })) as T
     })
   }
 
