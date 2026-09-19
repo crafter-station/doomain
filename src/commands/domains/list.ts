@@ -12,8 +12,7 @@ import {
   type ProviderAccountRef,
 } from '../../lib/providers/core/config.js'
 import { createProvider, getProviderDefinition } from '../../lib/providers/registry.js'
-import type { DnsZone } from '../../lib/providers/types.js'
-import type { DnsProvider } from '../../lib/providers/types.js'
+import type { DnsProvider, DnsZone } from '../../lib/providers/types.js'
 import { normalizeDomain } from '../../lib/validate.js'
 
 async function resolveZones(provider: DnsProvider, domain?: string): Promise<DnsZone[]> {

@@ -2,7 +2,7 @@ import { Effect } from 'effect'
 
 import { type ClerkDomainStatus, createClerkPlatformClient, resolveClerkPlatformConfig } from './clerk.js'
 import { resolveProviderTarget } from './domain-provider.js'
-import { trySync, type DoomainEffect } from './effect.js'
+import { type DoomainEffect, trySync } from './effect.js'
 import { DoomainError } from './errors.js'
 import { type DnsOverrideWarning, withProviderRecordOptions } from './link-domain.js'
 import { createProvider } from './providers/registry.js'

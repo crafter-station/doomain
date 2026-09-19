@@ -1,9 +1,9 @@
 import { Effect } from 'effect'
 
 import { reconcileRecordRemoval } from './dns-reconciliation.js'
-import type { DoomainEffect } from './effect.js'
 import { type DnsRecordSelector, recordMatchesSelector } from './dns-records.js'
 import { type ResolvedDnsTarget, resolveProviderTarget } from './domain-provider.js'
+import type { DoomainEffect } from './effect.js'
 import { DoomainError } from './errors.js'
 import { createProvider } from './providers/registry.js'
 import type { DnsChangePlan, DnsProvider, DnsRecord, DnsRecordType } from './providers/types.js'

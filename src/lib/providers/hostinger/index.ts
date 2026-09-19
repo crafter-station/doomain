@@ -1,6 +1,6 @@
 import { Effect } from 'effect'
 
-import { trySync, type DoomainEffect } from '../../effect.js'
+import { type DoomainEffect, trySync } from '../../effect.js'
 import { normalizeDomain } from '../../validate.js'
 import { createProviderHttpClient, type ProviderHttpClient } from '../core/http.js'
 import { assertNoConflicts, planDnsChanges } from '../core/planner.js'

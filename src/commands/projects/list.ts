@@ -1,7 +1,6 @@
 import { Command, Flags } from '@oclif/core'
-
-import { jsonFlag } from '../../lib/flags.js'
 import { runDoomainEffect } from '../../lib/effect.js'
+import { jsonFlag } from '../../lib/flags.js'
 import { createOutput, outputError } from '../../lib/output.js'
 import { createVercelClient, resolveVercelConfig } from '../../lib/vercel.js'
 

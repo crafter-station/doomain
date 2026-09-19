@@ -19,7 +19,7 @@ import {
   normalizeDnsValue,
 } from './dns-records.js'
 import { type ResolvedDnsTarget, resolveProviderTarget } from './domain-provider.js'
-import { trySync, type DoomainEffect } from './effect.js'
+import { type DoomainEffect, trySync } from './effect.js'
 import { DoomainError } from './errors.js'
 import { createProvider } from './providers/registry.js'
 import type { DnsProvider, DnsRecord, DnsRecordInput, DnsRecordType } from './providers/types.js'

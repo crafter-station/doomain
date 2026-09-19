@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
-import { describe, it } from 'mocha'
 import { Effect } from 'effect'
+import { describe, it } from 'mocha'
 
 import {
   type DiagnoseDnsInput,

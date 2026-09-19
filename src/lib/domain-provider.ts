@@ -1,7 +1,7 @@
 import { Effect } from 'effect'
 
 import { loadConfig } from './config.js'
-import { trySync, type DoomainEffect } from './effect.js'
+import { type DoomainEffect, trySync } from './effect.js'
 import { DoomainError, type DoomainErrorCode } from './errors.js'
 import {
   DEFAULT_PROVIDER_ACCOUNT,

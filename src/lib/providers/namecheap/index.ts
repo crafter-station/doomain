@@ -1,7 +1,7 @@
-import { XMLParser } from 'fast-xml-parser'
 import { Effect } from 'effect'
+import { XMLParser } from 'fast-xml-parser'
 
-import { trySync, type DoomainEffect } from '../../effect.js'
+import { type DoomainEffect, trySync } from '../../effect.js'
 import { normalizeDomain } from '../../validate.js'
 import { ProviderError } from '../core/errors.js'
 import { assertNoConflicts, planDnsChanges } from '../core/planner.js'

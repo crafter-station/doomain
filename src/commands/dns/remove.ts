@@ -1,8 +1,7 @@
 import * as p from '@clack/prompts'
 import { Args, Command, Flags } from '@oclif/core'
-
-import { accountFlag, jsonFlag, providerFlag } from '../../lib/flags.js'
 import { runDoomainEffect } from '../../lib/effect.js'
+import { accountFlag, jsonFlag, providerFlag } from '../../lib/flags.js'
 import { createOutput, outputError } from '../../lib/output.js'
 import type { DnsRecord, DnsRecordType } from '../../lib/providers/types.js'
 import { removeDomain } from '../../lib/remove-domain.js'

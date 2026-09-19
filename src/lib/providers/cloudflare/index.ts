@@ -1,6 +1,6 @@
 import { Effect } from 'effect'
 
-import { trySync, type DoomainEffect } from '../../effect.js'
+import { type DoomainEffect, trySync } from '../../effect.js'
 import { normalizeDomain } from '../../validate.js'
 import { ProviderError } from '../core/errors.js'
 import { createProviderHttpClient, type ProviderHttpClient } from '../core/http.js'

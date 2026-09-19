@@ -1,9 +1,8 @@
 import { getServers, Resolver, resolve4, resolve6, resolveCname } from 'node:dns/promises'
 import { Effect } from 'effect'
-
+import { normalizeDnsValue } from './dns-records.js'
 import type { DoomainEffect } from './effect.js'
 import { DoomainError } from './errors.js'
-import { normalizeDnsValue } from './dns-records.js'
 import type { DnsRecordInput, DnsRecordType } from './providers/types.js'
 
 export interface DnsAnswer {

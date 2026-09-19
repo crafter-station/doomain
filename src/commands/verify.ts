@@ -1,7 +1,6 @@
 import { Command } from '@oclif/core'
-
-import { apexFlag, domainFlag, jsonFlag, projectFlag, subdomainFlag } from '../lib/flags.js'
 import { runDoomainEffect } from '../lib/effect.js'
+import { apexFlag, domainFlag, jsonFlag, projectFlag, subdomainFlag } from '../lib/flags.js'
 import { detectLocalVercelProject } from '../lib/local-vercel.js'
 import { createOutput, outputError } from '../lib/output.js'
 import { resolveDomainTarget } from '../lib/validate.js'

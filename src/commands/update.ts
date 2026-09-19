@@ -1,9 +1,8 @@
 import { Command } from '@oclif/core'
-
+import { runDoomainEffect } from '../lib/effect.js'
 import { jsonFlag } from '../lib/flags.js'
 import { createOutput, outputError } from '../lib/output.js'
 import { installLatestVersion } from '../lib/self-update.js'
-import { runDoomainEffect } from '../lib/effect.js'
 
 export default class Update extends Command {
   static description = 'Install the latest doomain version from npm without using the existing npm cache.'

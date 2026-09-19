@@ -1,7 +1,6 @@
 import { Args, Command } from '@oclif/core'
-
-import { accountFlag, jsonFlag } from '../../lib/flags.js'
 import { runDoomainEffect } from '../../lib/effect.js'
+import { accountFlag, jsonFlag } from '../../lib/flags.js'
 import { createOutput, outputError } from '../../lib/output.js'
 import { isDefaultProviderAccount, normalizeProviderAccount } from '../../lib/providers/core/config.js'
 import { createProvider } from '../../lib/providers/registry.js'

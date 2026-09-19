@@ -1,3 +1,6 @@
+import { Effect } from 'effect'
+
+import type { DoomainEffect } from './effect.js'
 import { listProviderStatuses, type ProviderStatus } from './providers/status.js'
 
 export type ProviderConnectionStatus = Pick<
@@ -540,6 +543,3 @@ export function getCommandSchemaForAgents(name?: string): DoomainEffect<CommandS
     ),
   )
 }
-import { Effect } from 'effect'
-
-import type { DoomainEffect } from './effect.js'

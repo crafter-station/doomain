@@ -1,7 +1,6 @@
 import { Command, Flags } from '@oclif/core'
-
-import { jsonFlag } from '../../lib/flags.js'
 import { runDoomainEffect } from '../../lib/effect.js'
+import { jsonFlag } from '../../lib/flags.js'
 import { createOutput } from '../../lib/output.js'
 import { listProviderStatuses, type ProviderStatus } from '../../lib/providers/status.js'
 

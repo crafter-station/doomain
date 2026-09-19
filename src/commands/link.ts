@@ -1,8 +1,7 @@
 import * as p from '@clack/prompts'
 import { Args, Command, Flags } from '@oclif/core'
-
-import { accountFlag, apexFlag, domainFlag, jsonFlag, projectFlag, providerFlag, subdomainFlag } from '../lib/flags.js'
 import { runDoomainEffect } from '../lib/effect.js'
+import { accountFlag, apexFlag, domainFlag, jsonFlag, projectFlag, providerFlag, subdomainFlag } from '../lib/flags.js'
 import { type DnsOverrideWarning, type LinkDomainResult, linkDomain } from '../lib/link-domain.js'
 import { createOutput, outputError } from '../lib/output.js'
 

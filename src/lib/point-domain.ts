@@ -1,10 +1,10 @@
 import { Effect } from 'effect'
 
 import { type DnsPropagationResult, type DnsResolverObservation, waitForDnsPropagation } from './dns-propagation.js'
-import { trySync, type DoomainEffect } from './effect.js'
 import { reconcileDesiredRecord } from './dns-reconciliation.js'
 import { inferAddressRecordType, normalizeAddressRecordTarget } from './dns-records.js'
 import { type ResolvedDnsTarget, resolveProviderTarget } from './domain-provider.js'
+import { type DoomainEffect, trySync } from './effect.js'
 import { DoomainError } from './errors.js'
 import { type DnsOverrideWarning, withProviderRecordOptions } from './link-domain.js'
 import { createProvider } from './providers/registry.js'
