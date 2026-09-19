@@ -204,7 +204,16 @@ describe('providers', () => {
 
     const { stdout } = await runCommand('providers status --no-verify --json')
     const result = JSON.parse(stdout) as {
-      data: { providers: Array<{ account: string; configured: boolean; id: string; isDefaultAccount: boolean }> }
+      data: {
+        providers: Array<{
+          account: string
+          accountLabel: string
+          configured: boolean
+          id: string
+          isDefaultAccount: boolean
+          isPreferredProvider: boolean
+        }>
+      }
       ok: boolean
     }
 
@@ -217,6 +226,11 @@ describe('providers', () => {
     }))
     expect(statuses).to.deep.include({ account: 'default', configured: true, id: 'spaceship', isDefaultAccount: true })
     expect(statuses).to.deep.include({ account: 'work', configured: true, id: 'spaceship', isDefaultAccount: false })
+    expect(result.data.providers.find((provider) => provider.account === 'default')).to.deep.include({
+      accountLabel: 'spaceship/default',
+      isDefaultAccount: true,
+      isPreferredProvider: false,
+    })
   })
 
   it('verifies a named provider account with that account credentials', async () => {

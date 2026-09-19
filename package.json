@@ -82,12 +82,13 @@
   "scripts": {
     "build": "shx rm -rf dist && tsc -b",
     "check": "biome lint .",
+    "check:manifest": "node scripts/check-manifest-version.js",
     "format": "biome format --write .",
     "lint": "biome lint .",
     "postpack": "shx rm -f oclif.manifest.json",
     "posttest": "bun run lint",
     "prepare": "husky",
-    "prepack": "oclif manifest && oclif readme",
+    "prepack": "oclif manifest && bun run check:manifest && oclif readme",
     "test": "mocha --forbid-only \"test/**/*.test.ts\"",
     "version": "oclif readme && git add README.md"
   },

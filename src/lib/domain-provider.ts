@@ -48,10 +48,6 @@ export interface ResolveProviderTargetInput extends FindDomainProviderInput {
   subdomain?: string
 }
 
-export interface ResolveProviderTargetOptions {
-  tolerateProviderAccountErrors?: boolean
-}
-
 export interface ResolvedDnsTarget {
   account: string
   accountInferred: boolean
@@ -222,7 +218,6 @@ function searchWarnings(searches: ProviderZoneSearchResult[]): ProviderSearchWar
 async function loadConfiguredProviderZones(
   providerId?: string,
   accountInput?: string,
-  tolerateProviderAccountErrors = false,
 ): Promise<{
   candidates: ProviderZoneCandidate[]
   accountInferred: boolean
@@ -238,7 +233,7 @@ async function loadConfiguredProviderZones(
       ? [explicitAccountRef(definition.id, account)]
       : listConfiguredProviderAccounts(config, definition)
     const selectedAccounts = accounts.length > 0 ? accounts : [defaultAccountRef(definition.id)]
-    const tolerateAccountErrors = tolerateProviderAccountErrors && !account && selectedAccounts.length > 1
+    const tolerateAccountErrors = !account && selectedAccounts.length > 1
     const results = await Promise.all(
       selectedAccounts.map((ref) =>
         tolerateAccountErrors ? loadProviderZonesSafely(definition, ref) : loadProviderZones(definition, ref),
@@ -284,12 +279,9 @@ async function loadConfiguredProviderZones(
   }
 }
 
-export async function resolveProviderTarget(
-  input: ResolveProviderTargetInput,
-  options: ResolveProviderTargetOptions = {},
-): Promise<ResolvedDnsTarget> {
+export async function resolveProviderTarget(input: ResolveProviderTargetInput): Promise<ResolvedDnsTarget> {
   const requested = resolveRequestedDomain(input)
-  const zones = await loadConfiguredProviderZones(input.provider, input.account, options.tolerateProviderAccountErrors)
+  const zones = await loadConfiguredProviderZones(input.provider, input.account)
   const matches = zones.candidates
     .filter((candidate) => zoneMatchesDomain(requested.fullDomain, candidate.zone.name, requested.forceExactZone))
     .sort((a, b) => b.zone.name.length - a.zone.name.length)
@@ -359,7 +351,7 @@ function discoveryError(error: DoomainError, domain: string): DoomainError {
 /** Find the configured DNS provider account with the longest zone match for a domain. */
 export async function findDomainProvider(input: FindDomainProviderInput): Promise<DomainProviderResult> {
   try {
-    const resolved = await resolveProviderTarget(input, { tolerateProviderAccountErrors: true })
+    const resolved = await resolveProviderTarget(input)
 
     return {
       account: resolved.account,

@@ -2,7 +2,15 @@ import { listProviderStatuses, type ProviderStatus } from './providers/status.js
 
 export type ProviderConnectionStatus = Pick<
   ProviderStatus,
-  'account' | 'configured' | 'default' | 'displayName' | 'docsUrl' | 'id' | 'isDefaultAccount'
+  | 'account'
+  | 'accountLabel'
+  | 'configured'
+  | 'default'
+  | 'displayName'
+  | 'docsUrl'
+  | 'id'
+  | 'isDefaultAccount'
+  | 'isPreferredProvider'
 >
 
 export interface CommandSchema {
@@ -27,6 +35,17 @@ export interface CommandSchema {
   }>
 }
 
+const dnsRemovalFlags: CommandSchema['flags'] = [
+  { name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.' },
+  { name: 'domain', type: 'string', description: 'Fully qualified DNS name.', required: true },
+  { name: 'type', type: 'string', description: 'A, AAAA, CNAME, MX, or TXT.', required: true },
+  { name: 'value', type: 'string', description: 'Expected exact value. Required unless --all-matching.' },
+  { name: 'provider', type: 'string', description: 'DNS provider id. Inferred when omitted.' },
+  { name: 'account', type: 'string', description: 'DNS provider profile/account alias.' },
+  { name: 'all-matching', type: 'boolean', description: 'Delete every matching record after explicit approval.' },
+  { name: 'dry-run', type: 'boolean', description: 'Preview exact records without deleting.' },
+]
+
 export const commandSchemas: CommandSchema[] = [
   {
     name: 'dns point',
@@ -41,6 +60,7 @@ export const commandSchemas: CommandSchema[] = [
     agentInstructions: [
       'When a user asks to point a domain at a VPS or hostname, run `doomain dns point <domain> --target <ip-or-hostname> --json`.',
       'Pass --force only after the user has approved replacing an existing DNS target.',
+      'A successful mutation always has reconciled=true. propagated=false with public_propagation_pending means the provider mutation succeeded but public verification timed out; system_resolver_unavailable means public DNS matches but the local resolver check failed. Inspect propagation.observations before retrying.',
     ],
     agentQuickstart: {
       doNotPreflight: true,
@@ -70,6 +90,51 @@ export const commandSchemas: CommandSchema[] = [
       },
       { name: 'timeout', type: 'integer', description: 'DNS propagation wait timeout in seconds.', default: 300 },
     ],
+  },
+  {
+    name: 'dns remove',
+    description: 'Safely remove exact DNS records and verify their absence.',
+    examples: [
+      'doomain dns remove app.example.com --type A --value 203.0.113.10 --dry-run --json',
+      'doomain dns remove app.example.com --type A --value 203.0.113.10 --json',
+      'doomain dns delete app.example.com --type A --all-matching --json',
+    ],
+    agentHint:
+      'Default to exact name/type/value deletion. Preview with --dry-run when the expected value is unknown. Never pass --all-matching without explicit approval.',
+    mutates: true,
+    safeForAgents: true,
+    flags: dnsRemovalFlags,
+  },
+  {
+    name: 'dns diagnose',
+    description: 'Compare provider control-plane records with system and public DNS resolvers.',
+    examples: [
+      'doomain dns diagnose example.com --json',
+      'doomain dns diagnose app.example.com --type A --target 203.0.113.10 --json',
+    ],
+    agentHint:
+      'Use this read-only command to distinguish provider_not_updated, public_propagation_pending, and local_or_vpn_cache_stale. Resolver observations include answers and TTLs.',
+    safeForAgents: true,
+    flags: [
+      { name: 'json', type: 'boolean', description: 'Output a single JSON object and never prompt.' },
+      { name: 'domain', type: 'string', description: 'Fully qualified DNS name.', required: true },
+      { name: 'type', type: 'string', description: 'A, AAAA, or CNAME. Defaults to A.' },
+      { name: 'target', type: 'string', description: 'Optional expected IP address or canonical hostname.' },
+      { name: 'provider', type: 'string', description: 'DNS provider id. Inferred when omitted.' },
+      { name: 'account', type: 'string', description: 'DNS provider profile/account alias.' },
+    ],
+  },
+  {
+    name: 'dns delete',
+    description: 'Alias for dns remove.',
+    examples: [
+      'doomain dns delete app.example.com --type A --value 203.0.113.10 --dry-run --json',
+      'doomain dns delete app.example.com --type A --all-matching --json',
+    ],
+    agentHint: 'Alias for dns remove; use the same exact-match and explicit --all-matching safety rules.',
+    mutates: true,
+    safeForAgents: true,
+    flags: dnsRemovalFlags,
   },
   {
     name: 'link',
@@ -414,17 +479,27 @@ export function getCommandSchema(name?: string): CommandSchema[] | CommandSchema
 async function configuredProviders(): Promise<ProviderConnectionStatus[]> {
   return (await listProviderStatuses({ verify: false })).map((provider) => ({
     account: provider.account,
+    accountLabel: provider.accountLabel,
     configured: provider.configured,
     default: provider.default,
     displayName: provider.displayName,
     docsUrl: provider.docsUrl,
     id: provider.id,
     isDefaultAccount: provider.isDefaultAccount,
+    isPreferredProvider: provider.isPreferredProvider,
   }))
 }
 
 function withProviderConnections(schema: CommandSchema, providers: ProviderConnectionStatus[]): CommandSchema {
-  if (schema.name !== 'link' && schema.name !== 'clerk domains add' && schema.name !== 'dns point') return schema
+  if (
+    schema.name !== 'link' &&
+    schema.name !== 'clerk domains add' &&
+    schema.name !== 'dns point' &&
+    schema.name !== 'dns remove' &&
+    schema.name !== 'dns delete' &&
+    schema.name !== 'dns diagnose'
+  )
+    return schema
   return { ...schema, configuredProviders: providers }
 }
 

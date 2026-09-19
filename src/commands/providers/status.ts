@@ -29,9 +29,8 @@ export default class ProvidersStatus extends Command {
     spinner?.stop('Checked DNS providers')
 
     for (const provider of providers) {
-      const account = provider.isDefaultAccount ? provider.id : `${provider.id}/${provider.account}`
       out.info(
-        `${provider.displayName} (${account}) - ${formatStatus(provider)}${provider.default ? ' [default]' : ''}`,
+        `${provider.displayName} (${provider.accountLabel}) - ${formatStatus(provider)}${provider.isPreferredProvider ? ' [preferred provider]' : ''}`,
       )
     }
 

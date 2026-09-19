@@ -455,7 +455,7 @@ describe('link', () => {
     })
   })
 
-  it("fails closed when an explicit provider's account cannot be searched", async () => {
+  it('uses the unique healthy account when an inferred provider account cannot be searched', async () => {
     await saveConfig({
       providers: {
         spaceship: {
@@ -477,15 +477,15 @@ describe('link', () => {
       throw new Error(`Unexpected request: ${url.href}`)
     }) as typeof fetch
 
-    let error: unknown
-    try {
-      await linkDomain({ domain: 'app.example.com', dryRun: true, project: 'prj_123', provider: 'spaceship' })
-    } catch (error_) {
-      error = error_
-    }
+    const result = await linkDomain({
+      domain: 'app.example.com',
+      dryRun: true,
+      project: 'prj_123',
+      provider: 'spaceship',
+    })
 
-    expect(error).to.be.instanceOf(DoomainError)
-    expect((error as DoomainError).code).to.equal('PROVIDER_AUTH_FAILED')
+    expect(result.account).to.equal('work')
+    expect(result.accountInferred).to.equal(true)
   })
 
   it('uses the longest matching zone across configured provider accounts', async () => {

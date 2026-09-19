@@ -6,6 +6,7 @@ import { expect } from 'chai'
 
 import { findDomainProvider } from '../../src/index.js'
 import { saveConfig } from '../../src/lib/config.js'
+import { resolveProviderTarget } from '../../src/lib/domain-provider.js'
 
 function jsonResponse(body: unknown, status = 200): Response {
   return { json: async () => body, ok: status >= 200 && status < 300, status } as Response
@@ -121,5 +122,33 @@ describe('findDomainProvider', () => {
         providerName: 'Spaceship',
       },
     ])
+  })
+
+  it('uses the unique healthy account for a mutating command when the default account is broken', async () => {
+    await saveConfig({
+      providers: {
+        spaceship: {
+          accounts: { personal: { credentials: { apiKey: 'personal_key', apiSecret: 'personal_secret' } } },
+          credentials: { apiKey: 'expired_key', apiSecret: 'expired_secret' },
+        },
+      },
+    })
+
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input))
+      const headers = init?.headers as Record<string, string>
+      if (url.pathname === '/api/v1/domains') {
+        return headers['X-Api-Key'] === 'personal_key'
+          ? jsonResponse({ items: [{ name: 'example.com' }], total: 1 })
+          : jsonResponse({ message: 'Unauthenticated.' }, 401)
+      }
+      throw new Error(`Unexpected request: ${url.href}`)
+    }) as typeof fetch
+
+    const result = await resolveProviderTarget({ domain: 'app.example.com', provider: 'spaceship' })
+
+    expect(result.account).to.equal('personal')
+    expect(result.warnings).to.have.length(1)
+    expect(result.warnings[0]).to.include({ account: 'default', provider: 'spaceship' })
   })
 })

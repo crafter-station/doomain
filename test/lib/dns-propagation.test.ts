@@ -1,0 +1,62 @@
+import { strict as assert } from 'node:assert'
+import { describe, it } from 'mocha'
+
+import { classifyDnsPropagation } from '../../src/lib/dns-propagation.js'
+
+describe('DNS propagation classification', () => {
+  it('does not call a failed system lookup a stale local cache', () => {
+    assert.equal(
+      classifyDnsPropagation([
+        {
+          answers: [],
+          elapsedMs: 0,
+          error: 'resolver unavailable',
+          kind: 'system',
+          matches: false,
+          resolver: 'system',
+          servers: ['100.64.0.2'],
+          type: 'A',
+        },
+        {
+          answers: [{ ttl: 300, value: '203.0.113.10' }],
+          elapsedMs: 0,
+          kind: 'public',
+          matches: true,
+          resolver: 'cloudflare',
+          servers: ['1.1.1.1'],
+          type: 'A',
+        },
+      ]),
+      'system_resolver_unavailable',
+    )
+  })
+
+  it('classifies mixed system answers as a stale local cache', () => {
+    assert.equal(
+      classifyDnsPropagation([
+        {
+          answers: [
+            { ttl: 300, value: '203.0.113.10' },
+            { ttl: 2200, value: '76.76.21.21' },
+          ],
+          elapsedMs: 0,
+          kind: 'system',
+          matches: false,
+          resolver: 'system',
+          servers: ['100.64.0.2'],
+          type: 'A',
+        },
+        {
+          answers: [{ ttl: 300, value: '203.0.113.10' }],
+          elapsedMs: 0,
+          kind: 'public',
+          matches: true,
+          resolver: 'cloudflare',
+          servers: ['1.1.1.1'],
+          type: 'A',
+        },
+      ]),
+      'local_or_vpn_cache_stale',
+    )
+  })
+})

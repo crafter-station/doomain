@@ -1,6 +1,6 @@
 import * as p from '@clack/prompts'
 import { Args, Command, Flags } from '@oclif/core'
-
+import { normalizeDnsValue } from '../../lib/dns-records.js'
 import { accountFlag, jsonFlag, providerFlag } from '../../lib/flags.js'
 import type { DnsOverrideWarning } from '../../lib/link-domain.js'
 import { createOutput, outputError } from '../../lib/output.js'
@@ -29,6 +29,28 @@ function conflictNote(warning: DnsOverrideWarning): string {
 }
 
 function successMessages(result: PointDomainResult, waited: boolean): { outro: string; spinner: string } {
+  if (result.propagation.status === 'system_resolver_unavailable') {
+    return {
+      outro:
+        'Public DNS is deployed, but the system resolver could not be queried. See resolver observations for details.',
+      spinner: 'Public DNS deployed; system resolver unavailable',
+    }
+  }
+
+  if (result.propagation.status === 'local_or_vpn_cache_stale') {
+    const system = result.propagation.observations.find((observation) => observation.kind === 'system')
+    const remainingTtl = system?.answers
+      .filter((answer) => normalizeDnsValue(answer.value) !== normalizeDnsValue(result.propagation.expected))
+      .reduce<number | undefined>(
+        (longest, answer) => (answer.ttl == null ? longest : Math.max(longest ?? 0, answer.ttl)),
+        undefined,
+      )
+    return {
+      outro: `DNS is deployed; your active VPN/local resolver is serving a cached record${remainingTtl === undefined ? '' : ` for up to ${remainingTtl} more seconds`}.`,
+      spinner: 'DNS deployed; local resolver cache is stale',
+    }
+  }
+
   if (result.propagated) {
     return {
       outro: result.updated
