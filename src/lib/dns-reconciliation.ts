@@ -1,9 +1,4 @@
-import {
-  type DnsRecordSelector,
-  desiredSlotPostcondition,
-  recordMatchesSelector,
-  sameDnsRecordTarget,
-} from './dns-records.js'
+import { type DnsRecordSelector, desiredSlotPostcondition, recordMatchesSelector } from './dns-records.js'
 import { DoomainError } from './errors.js'
 import type { DnsProvider, DnsRecord, DnsRecordInput, DnsZone } from './providers/types.js'
 
@@ -23,10 +18,8 @@ const sleep = (milliseconds: number) => new Promise<void>((resolve) => setTimeou
 
 export async function reconcileDesiredRecord(input: {
   desired: DnsRecordInput
-  force?: boolean
   intervalMs?: number
   provider: DnsProvider
-  settleMs?: number
   timeoutMs?: number
   zone: DnsZone
   progress?: (message: string) => void
@@ -34,10 +27,9 @@ export async function reconcileDesiredRecord(input: {
 }): Promise<ReconciliationResult> {
   const now = input.dependencies?.now ?? Date.now
   const wait = input.dependencies?.sleep ?? sleep
-  const started = now()
-  const deadline = started + (input.timeoutMs ?? 30_000)
+  const deadline = now() + (input.timeoutMs ?? 30_000)
   let attempts = 0
-  let appliedChanges = 0
+  const appliedChanges = 0
 
   while (true) {
     attempts += 1
@@ -58,22 +50,9 @@ export async function reconcileDesiredRecord(input: {
       )
     }
 
+    input.progress?.('Waiting for the DNS provider to publish the accepted change')
     const remaining = deadline - now()
     await wait(Math.min(input.intervalMs ?? 1000, Math.max(0, remaining)))
-
-    const settled = now() - started >= (input.settleMs ?? 5000)
-    const desiredWasObserved = state.observed.some((record) => sameDnsRecordTarget(record, input.desired))
-    if (!input.force || !settled || !desiredWasObserved) {
-      input.progress?.('Waiting for the DNS provider to publish the accepted change')
-      continue
-    }
-
-    input.progress?.('Provider state is still stale; reconciling the authorized DNS replacement')
-    const plan = await input.provider.planChanges(input.zone, [input.desired], { force: true })
-    if (plan.changes.some((change) => change.action !== 'skip')) {
-      const result = await input.provider.applyChanges(input.zone, plan, { force: true })
-      appliedChanges += result.applied.length
-    }
   }
 }
 

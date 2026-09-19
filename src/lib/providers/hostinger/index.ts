@@ -80,7 +80,7 @@ function toDnsRecords(record: HostingerZoneRecord, zone: DnsZone): DnsRecord[] {
 
     return [
       {
-        metadata: { hostinger: { ...record, records: [item] } },
+        metadata: { hostinger: record },
         name,
         ttl: record.ttl,
         type,
@@ -204,9 +204,18 @@ export class HostingerProvider implements DnsProvider {
 
     for (const deleted of deletionSets.values()) {
       const sample = deleted[0]
-      const remaining = plan.existing.filter((record) => sameRecordSet(record, sample) && !deleted.includes(record))
-      if (remaining.length > 0) await this.putRecords(zone, remaining, true)
-      else await this.deleteRecord(zone, sample)
+      const source = sample.metadata?.hostinger as HostingerZoneRecord | undefined
+      const deletedValues = new Set(deleted.map((record) => record.value))
+      const sourceRecords = source?.records?.filter(
+        (record) => record.is_disabled || !record.content || !deletedValues.has(record.content),
+      )
+      if (source && sourceRecords && sourceRecords.length > 0) {
+        await this.putHostingerRecordSets(zone, [{ ...source, records: sourceRecords }], true)
+      } else {
+        const remaining = plan.existing.filter((record) => sameRecordSet(record, sample) && !deleted.includes(record))
+        if (remaining.length > 0) await this.putRecords(zone, remaining, true)
+        else await this.deleteRecord(zone, sample)
+      }
       applied.push(...plan.changes.filter((change) => change.action === 'delete' && deleted.includes(change.existing)))
     }
 
@@ -245,8 +254,16 @@ export class HostingerProvider implements DnsProvider {
       values.push(record)
       recordSets.set(key, values)
     }
+    await this.putHostingerRecordSets(zone, [...recordSets.values()].map(toHostingerRecordSet), overwrite)
+  }
+
+  private async putHostingerRecordSets(
+    zone: DnsZone,
+    recordSets: HostingerZoneRecord[],
+    overwrite: boolean,
+  ): Promise<void> {
     await this.http.request(`/api/dns/v1/zones/${encodeURIComponent(zone.name)}`, {
-      body: { overwrite, zone: [...recordSets.values()].map(toHostingerRecordSet) },
+      body: { overwrite, zone: recordSets },
       method: 'PUT',
     })
   }

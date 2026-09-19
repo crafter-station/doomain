@@ -34,40 +34,32 @@ function providerFixture(records: DnsRecord[]): DnsProvider {
 }
 
 describe('DNS reconciliation', () => {
-  it('recovers from reordered writes, delayed deletion, and delayed creation', async () => {
+  it('polls through reordered writes, delayed deletion, and delayed creation', async () => {
     const old: DnsRecord = { id: 'old', name: '@', type: 'A', value: '76.76.21.21' }
     const desired: DnsRecordInput = { name: '@', type: 'A', value: '203.0.113.10' }
     let records: DnsRecord[] = [old, desired]
-    let writes = 0
     const provider = providerFixture(records)
     provider.listRecords = async () => records
-    provider.planChanges = async (_zone, recordsToWrite, opts) =>
-      planDnsChanges({ desired: recordsToWrite, existing: records, force: opts?.force, providerId: 'test', zone })
-    provider.applyChanges = async (_zone, plan) => {
-      writes += 1
-      records = []
-      return { applied: plan.changes, skipped: [] }
-    }
     let now = 0
+    let polls = 0
 
     const result = await reconcileDesiredRecord({
       dependencies: {
         now: () => now,
         sleep: async (milliseconds) => {
           now += milliseconds
-          if (writes > 0 && records.length === 0) records = [{ ...desired }]
+          polls += 1
+          records = polls === 1 ? [] : [{ ...desired }]
         },
       },
       desired,
-      force: true,
       intervalMs: 1,
       provider,
-      settleMs: 1,
       timeoutMs: 1000,
       zone,
     })
 
-    assert.equal(writes, 1)
+    assert.equal(result.appliedChanges, 0)
     assert.equal(result.attempts, 3)
     assert.deepEqual(records, [desired])
   })
@@ -152,10 +144,8 @@ describe('DNS reconciliation', () => {
           },
         },
         desired,
-        force: true,
         intervalMs: 1,
         provider,
-        settleMs: 1,
         timeoutMs: 2,
         zone,
       }),
@@ -183,10 +173,8 @@ describe('DNS reconciliation', () => {
           },
         },
         desired,
-        force: false,
         intervalMs: 1,
         provider,
-        settleMs: 0,
         timeoutMs: 2,
         zone,
       }),
@@ -214,10 +202,8 @@ describe('DNS reconciliation', () => {
           },
         },
         desired,
-        force: true,
         intervalMs: 1,
         provider,
-        settleMs: 0,
         timeoutMs: 2,
         zone,
       }),

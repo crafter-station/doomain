@@ -152,4 +152,37 @@ describe('remove domain', () => {
     assert.equal(writes, 1)
     assert.deepEqual(fixture.records(), [concurrent])
   })
+
+  it('returns removal-specific recovery commands when provider resolution fails', async () => {
+    await assert.rejects(
+      removeDomain(
+        {
+          account: 'work',
+          domain: 'app.example.com',
+          provider: 'spaceship',
+          recordType: 'A',
+          value: '203.0.113.10',
+        },
+        {
+          createProvider: async () => providerWith([]).provider,
+          resolveTarget: async () => {
+            throw new DoomainError('PROVIDER_ZONE_NOT_FOUND', 'No matching zone.', {
+              suggestedCommands: ['doomain link app.example.com --json'],
+            })
+          },
+        },
+      ),
+      (error: unknown) => {
+        if (!(error instanceof DoomainError)) return false
+        const details = error.details as { recovery: string; suggestedCommands: string[] }
+        const retry =
+          'doomain dns remove app.example.com --provider spaceship --account work --type A --value 203.0.113.10 --json'
+        return (
+          details.recovery.includes(retry) &&
+          details.suggestedCommands.includes(retry) &&
+          !details.suggestedCommands.some((command) => command.startsWith('doomain link'))
+        )
+      },
+    )
+  })
 })

@@ -273,19 +273,24 @@ describe('point domain', () => {
     const old = { name: '@', ttl: 300, type: 'A' as const, value: '76.76.21.21' }
     let records: DnsRecord[] = [old]
     let writes = 0
+    let reconciliationReads = 0
     const provider = providerWith()
-    provider.listRecords = async () => records
+    provider.listRecords = async () => {
+      reconciliationReads += 1
+      const observed = records
+      if (reconciliationReads === 1 && writes > 0) records = [{ ...desired }]
+      return observed
+    }
     provider.planChanges = async (_zone, recordsToWrite, opts) =>
       planDnsChanges({ desired: recordsToWrite, existing: records, force: opts?.force, providerId: 'test', zone })
     provider.applyChanges = async (_zone, plan) => {
       writes += 1
-      if (writes === 1) records = [old, { ...desired }]
-      else records = [{ ...desired }]
+      records = [old, { ...desired }]
       return { applied: plan.changes, skipped: [] }
     }
 
     const result = await pointDomain(
-      { domain: 'example.com', force: true, reconcileSettleSeconds: 0, target: desired.value, wait: false },
+      { domain: 'example.com', force: true, target: desired.value, wait: false },
       {
         createProvider: async () => provider,
         resolveTarget: async () => ({
@@ -300,7 +305,7 @@ describe('point domain', () => {
       },
     )
 
-    assert.equal(writes, 2)
+    assert.equal(writes, 1)
     assert.equal(result.reconciled, true)
     assert.equal(result.reconciliationAttempts, 2)
     assert.deepEqual(records, [desired])

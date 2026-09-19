@@ -96,4 +96,32 @@ describe('DNS propagation classification', () => {
       'public_propagation_pending',
     )
   })
+
+  it('classifies a cached negative system answer as a stale local cache', () => {
+    assert.equal(
+      classifyDnsPropagation([
+        {
+          answers: [],
+          elapsedMs: 0,
+          error: 'queryA ENOTFOUND app.example.com',
+          errorCode: 'ENOTFOUND',
+          kind: 'system',
+          matches: false,
+          resolver: 'system',
+          servers: ['192.0.2.53'],
+          type: 'A',
+        },
+        {
+          answers: [{ ttl: 300, value: '203.0.113.10' }],
+          elapsedMs: 0,
+          kind: 'public',
+          matches: true,
+          resolver: 'cloudflare',
+          servers: ['1.1.1.1'],
+          type: 'A',
+        },
+      ]),
+      'local_or_vpn_cache_stale',
+    )
+  })
 })

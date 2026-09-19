@@ -114,7 +114,12 @@ describe('diagnose DNS', () => {
   it('returns diagnosis-specific recovery commands when provider resolution fails', async () => {
     await assert.rejects(
       diagnoseDns(
-        { domain: 'app.example.com', provider: 'spaceship' },
+        {
+          domain: 'app.example.com',
+          provider: 'spaceship',
+          recordType: 'CNAME',
+          target: 'origin.example.net',
+        },
         {
           createProvider: async () => providerWith([]),
           observeDns: async () => [],
@@ -129,11 +134,47 @@ describe('diagnose DNS', () => {
         if (!(error instanceof DoomainError)) return false
         const details = error.details as { recovery: string; suggestedCommands: string[] }
         return (
-          details.recovery.includes('doomain dns diagnose app.example.com --provider spaceship --json') &&
-          details.suggestedCommands.includes('doomain dns diagnose app.example.com --provider spaceship --json') &&
+          details.recovery.includes(
+            'doomain dns diagnose app.example.com --provider spaceship --type CNAME --target origin.example.net --json',
+          ) &&
+          details.suggestedCommands.includes(
+            'doomain dns diagnose app.example.com --provider spaceship --type CNAME --target origin.example.net --json',
+          ) &&
           !details.suggestedCommands.some((command) => command.startsWith('doomain link'))
         )
       },
+    )
+  })
+
+  it('reports consistent absence when provider and resolvers have no record', async () => {
+    const provider = providerWith([])
+    const result = await diagnoseDns(
+      { domain: 'example.com' },
+      {
+        createProvider: async () => provider,
+        observeDns: async (_fqdn, target, elapsedMs) =>
+          [
+            { kind: 'system' as const, resolver: 'system', servers: ['192.0.2.53'] },
+            { kind: 'public' as const, resolver: 'cloudflare', servers: ['1.1.1.1'] },
+            { kind: 'public' as const, resolver: 'google', servers: ['8.8.8.8'] },
+          ].map((resolver) => ({
+            ...resolver,
+            answers: [],
+            elapsedMs,
+            error: 'queryA ENOTFOUND example.com',
+            errorCode: 'ENOTFOUND',
+            expected: target.value,
+            matches: false,
+            type: target.type,
+          })),
+        resolveTarget: async () => resolved,
+      },
+    )
+
+    assert.equal(result.status, 'consistent')
+    assert.equal(
+      result.observations.every((observation) => observation.matches),
+      true,
     )
   })
 })

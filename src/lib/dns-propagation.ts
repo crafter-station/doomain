@@ -49,6 +49,12 @@ export const defaultDnsResolvers: DnsResolverSpec[] = [
   { kind: 'public', name: 'google', servers: ['8.8.8.8', '8.8.4.4'] },
 ]
 
+const negativeAnswerCodes = new Set(['ENODATA', 'ENOTFOUND'])
+
+export function isNegativeDnsObservation(observation: DnsResolverObservation): boolean {
+  return observation.errorCode !== undefined && negativeAnswerCodes.has(observation.errorCode)
+}
+
 type ResolveTarget = Pick<DnsRecordInput, 'type' | 'value'>
 
 function resolverFor(spec: DnsResolverSpec): Resolver | undefined {
@@ -124,17 +130,14 @@ export async function observeDnsRecord(
 }
 
 export function classifyDnsPropagation(observations: DnsResolverObservation[]): DnsPropagationStatus {
-  const negativeAnswerCodes = new Set(['ENODATA', 'ENOTFOUND'])
   const publicResults = observations.filter(
-    (observation) =>
-      observation.kind === 'public' &&
-      (!observation.error || (observation.errorCode !== undefined && negativeAnswerCodes.has(observation.errorCode))),
+    (observation) => observation.kind === 'public' && (!observation.error || isNegativeDnsObservation(observation)),
   )
   const system = observations.find((observation) => observation.kind === 'system')
   const publicMatches = publicResults.length > 0 && publicResults.every((observation) => observation.matches)
 
   if (!publicMatches) return 'public_propagation_pending'
-  if (!system || system.error) return 'system_resolver_unavailable'
+  if (!system || (system.error && !isNegativeDnsObservation(system))) return 'system_resolver_unavailable'
   if (!system.matches) return 'local_or_vpn_cache_stale'
   return 'propagated'
 }

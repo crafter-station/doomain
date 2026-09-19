@@ -41,6 +41,22 @@ interface RemoveDomainDependencies {
 
 const defaultDependencies: RemoveDomainDependencies = { createProvider, resolveTarget: resolveProviderTarget }
 
+function removalResolutionError(error: DoomainError, input: RemoveDomainInput): DoomainError {
+  if (error.code !== 'CONFIG_NOT_FOUND' && error.code !== 'PROVIDER_ZONE_NOT_FOUND') return error
+  const details = error.details && typeof error.details === 'object' ? error.details : {}
+  const provider = input.provider ? ` --provider ${input.provider}` : ''
+  const account = input.account ? ` --account ${input.account}` : ''
+  const value = input.value === undefined ? '' : ` --value ${input.value}`
+  const allMatching = input.allMatching ? ' --all-matching' : ''
+  const dryRun = input.dryRun ? ' --dry-run' : ''
+  const retry = `doomain dns remove ${input.domain}${provider}${account} --type ${input.recordType}${value}${allMatching}${dryRun} --json`
+  return new DoomainError(error.code, error.message, {
+    ...details,
+    recovery: `Connect or repair the DNS provider account that owns this domain, then retry \`${retry}\`.`,
+    suggestedCommands: ['doomain providers connect', retry],
+  })
+}
+
 function ambiguousDeletionError(input: RemoveDomainInput, records: DnsRecord[]): DoomainError {
   return new DoomainError(
     'DNS_DELETE_AMBIGUOUS',
@@ -65,7 +81,13 @@ export async function removeDomain(
     })
   }
 
-  const resolved = await dependencies.resolveTarget(input)
+  let resolved: ResolvedDnsTarget
+  try {
+    resolved = await dependencies.resolveTarget(input)
+  } catch (error) {
+    if (error instanceof DoomainError) throw removalResolutionError(error, input)
+    throw error
+  }
   const provider = await dependencies.createProvider(resolved.provider, { account: resolved.account })
   if (!provider.capabilities.recordTypes.includes(input.recordType)) {
     throw new DoomainError(

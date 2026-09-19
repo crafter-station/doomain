@@ -89,7 +89,10 @@ describe('hostinger provider', () => {
         metadata: {
           hostinger: {
             name: 'example.com.',
-            records: [{ content: 'vc-domain-verify=example.com,abc' }],
+            records: [
+              { content: 'vc-domain-verify=example.com,abc' },
+              { content: 'disabled-record', is_disabled: true },
+            ],
             ttl: 3600,
             type: 'TXT',
           },
@@ -273,5 +276,50 @@ describe('hostinger provider', () => {
         },
       ],
     })
+  })
+
+  it('preserves disabled siblings when applying an exact-value deletion plan', async () => {
+    const requests: Array<{ init?: RequestInit; input: RequestInfo | URL }> = []
+    globalThis.fetch = (async (input, init) => {
+      requests.push({ init, input })
+      return jsonResponse(
+        (init?.method ?? 'GET') === 'GET'
+          ? [
+              {
+                name: 'app',
+                records: [{ content: '203.0.113.10' }, { content: '192.0.2.99', is_disabled: true }],
+                ttl: 300,
+                type: 'A',
+              },
+            ]
+          : { message: 'Request accepted' },
+      )
+    }) as typeof fetch
+
+    const provider = await createProvider('hostinger')
+    const zone = { id: 'example.com', name: 'example.com' }
+    const records = await provider.listRecords(zone)
+    await provider.applyChanges(zone, {
+      changes: [{ action: 'delete', existing: records[0] }],
+      conflicts: [],
+      desired: [],
+      existing: records,
+      zone,
+    })
+
+    const update = requests.find((request) => request.init?.method === 'PUT')
+    expect(update).not.to.equal(undefined)
+    expect(JSON.parse(String(update?.init?.body))).to.deep.equal({
+      overwrite: true,
+      zone: [
+        {
+          name: 'app',
+          records: [{ content: '192.0.2.99', is_disabled: true }],
+          ttl: 300,
+          type: 'A',
+        },
+      ],
+    })
+    expect(requests.some((request) => request.init?.method === 'DELETE')).to.equal(false)
   })
 })

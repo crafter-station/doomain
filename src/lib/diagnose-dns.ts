@@ -7,6 +7,7 @@ import {
   classifyDnsPropagation,
   type DnsPropagationStatus,
   type DnsResolverObservation,
+  isNegativeDnsObservation,
   observeDnsRecord,
 } from './dns-propagation.js'
 import { desiredSlotPostcondition, inferAddressRecordType, normalizeDnsValue } from './dns-records.js'
@@ -146,7 +147,9 @@ function diagnosisResolutionError(error: DoomainError, input: DiagnoseDnsInput):
   const details = error.details && typeof error.details === 'object' ? error.details : {}
   const provider = input.provider ? ` --provider ${input.provider}` : ''
   const account = input.account ? ` --account ${input.account}` : ''
-  const retry = `doomain dns diagnose ${input.domain}${provider}${account} --json`
+  const type = input.recordType ? ` --type ${input.recordType}` : ''
+  const target = input.target ? ` --target ${input.target}` : ''
+  const retry = `doomain dns diagnose ${input.domain}${provider}${account}${type}${target} --json`
   return new DoomainError(error.code, error.message, {
     ...details,
     recovery: `Connect or repair the DNS provider account that owns this domain, then retry \`${retry}\`.`,
@@ -189,9 +192,10 @@ export async function diagnoseDns(
     const compared = observations.map((observation) => ({
       ...observation,
       matches:
-        providerValues.size > 0 &&
-        observation.answers.length === providerValues.size &&
-        observation.answers.every((answer) => providerValues.has(normalizeDnsValue(answer.value))),
+        providerValues.size === 0
+          ? observation.answers.length === 0 && isNegativeDnsObservation(observation)
+          : observation.answers.length === providerValues.size &&
+            observation.answers.every((answer) => providerValues.has(normalizeDnsValue(answer.value))),
     }))
     observations.splice(0, observations.length, ...compared)
     status = diagnosisStatus(classifyDnsPropagation(observations))

@@ -24,7 +24,6 @@ export interface PointDomainInput {
   ttl?: number
   wait?: boolean
   reconcileTimeoutSeconds?: number
-  reconcileSettleSeconds?: number
   confirmDnsOverride?: (warning: DnsOverrideWarning) => Promise<boolean>
   progress?: (message: string) => void
 }
@@ -246,10 +245,8 @@ export async function pointDomain(
   const result = await provider.applyChanges(zone, plan, { force })
   const reconciliation = await reconcileDesiredRecord({
     desired: record,
-    force,
     progress: input.progress,
     provider,
-    settleMs: (input.reconcileSettleSeconds ?? 5) * 1000,
     timeoutMs: (input.reconcileTimeoutSeconds ?? 30) * 1000,
     zone,
   })
