@@ -34,41 +34,49 @@ export function planDnsChanges(input: {
 
   for (const record of input.desired) {
     const exact = input.existing.find((existing) => sameRecord(existing, record))
-    if (exact) {
-      changes.push({action: 'skip', existing: exact, reason: 'already_exists', record})
-      continue
-    }
-
     const sameValue = input.existing.find((existing) => sameDnsValue(existing, record))
-    if (sameValue && record.proxied !== undefined && sameValue.proxied !== record.proxied) {
-      changes.push({action: 'update', existing: sameValue, record})
-      continue
-    }
 
     if (record.type === 'TXT') {
-      changes.push({action: 'create', record})
+      changes.push(exact ? {action: 'skip', existing: exact, reason: 'already_exists', record} : {action: 'create', record})
       continue
     }
 
-    const sameTyped = input.existing.find((existing) => sameSlot(existing, record))
-    if (sameTyped) {
-      if (input.force) changes.push({action: 'update', existing: sameTyped, record})
-      else conflicts.push({existing: sameTyped, reason: 'same_type_record_exists', record})
+    const sameTyped = input.existing.filter((existing) => sameSlot(existing, record) && !sameDnsValue(existing, record))
+    const cnameConflicts = input.existing.filter((existing) => cnameSlotConflict(existing, record) && !sameSlot(existing, record))
+
+    if (!input.force && (sameTyped.length > 0 || cnameConflicts.length > 0)) {
+      conflicts.push(
+        ...sameTyped.map((existing) => ({existing, reason: 'same_type_record_exists', record})),
+        ...cnameConflicts.map((existing) => ({existing, reason: 'cname_slot_conflict', record})),
+      )
       continue
     }
 
-    const cnameConflict = input.existing.find((existing) => cnameSlotConflict(existing, record))
-    if (cnameConflict) {
-      if (input.force) {
-        changes.push({action: 'delete', existing: cnameConflict, reason: 'cname_slot_conflict'}, {action: 'create', record})
-      } else {
-        conflicts.push({existing: cnameConflict, reason: 'cname_slot_conflict', record})
-      }
-
+    if (exact) {
+      changes.push(
+        ...sameTyped.map((existing) => ({action: 'delete' as const, existing, reason: 'same_type_record_exists'})),
+        ...cnameConflicts.map((existing) => ({action: 'delete' as const, existing, reason: 'cname_slot_conflict'})),
+        {action: 'skip', existing: exact, reason: 'already_exists', record},
+      )
       continue
     }
 
-    changes.push({action: 'create', record})
+    if (sameValue && record.proxied !== undefined && sameValue.proxied !== record.proxied) {
+      changes.push(
+        ...sameTyped.map((existing) => ({action: 'delete' as const, existing, reason: 'same_type_record_exists'})),
+        ...cnameConflicts.map((existing) => ({action: 'delete' as const, existing, reason: 'cname_slot_conflict'})),
+        {action: 'update', existing: sameValue, record},
+      )
+      continue
+    }
+
+    const [replace, ...remainingSameTyped] = sameTyped
+    changes.push(
+      ...(replace ? [{action: 'update' as const, existing: replace, record}] : []),
+      ...remainingSameTyped.map((existing) => ({action: 'delete' as const, existing, reason: 'same_type_record_exists'})),
+      ...cnameConflicts.map((existing) => ({action: 'delete' as const, existing, reason: 'cname_slot_conflict'})),
+      ...(replace ? [] : [{action: 'create' as const, record}]),
+    )
   }
 
   return {changes, conflicts, desired: input.desired, existing: input.existing, zone: input.zone}
