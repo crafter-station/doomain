@@ -17,9 +17,10 @@ describe('update commands', () => {
 
     writeFileSync(join(directory, 'npm'), `#!/usr/bin/env node\n${fakeNpm}`, { mode: 0o755 })
     writeFileSync(join(directory, 'fake-npm.cjs'), fakeNpm)
-    writeFileSync(join(directory, 'npm.cmd'), '@node "%~dp0fake-npm.cjs" %*\r\n')
+    writeFileSync(join(directory, 'npm.cmd'), `@"${process.execPath}" "%~dp0fake-npm.cjs" %*\r\n`)
     chmodSync(join(directory, 'npm'), 0o755)
-    process.env.PATH = `${directory}${delimiter}${env.PATH ?? ''}`
+    const pathKey = Object.keys(process.env).find((key) => key.toLowerCase() === 'path') ?? 'PATH'
+    process.env[pathKey] = `${directory}${delimiter}${process.env[pathKey] ?? ''}`
     process.env.DOOMAIN_TEST_NPM_INVOCATION = invocationFile
   })
 
@@ -37,7 +38,8 @@ describe('update commands', () => {
       }
       const args = JSON.parse(readFileSync(invocationFile, 'utf8')) as string[]
 
-      expect(args).to.include.members(['doomain@latest', '--force', '--prefer-online', '--offline=false'])
+      expect(args).to.include.members(['doomain@latest', '--prefer-online', '--offline=false'])
+      expect(args).not.to.include('--force')
       expect(result).to.deep.equal({
         data: { package: 'doomain', packageManager: 'npm', packageSpec: 'doomain@latest' },
         ok: true,

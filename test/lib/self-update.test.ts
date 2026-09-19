@@ -30,7 +30,8 @@ describe('self update', () => {
       platform: 'linux',
       runner: async (command, args, options) => {
         expect(command).to.equal('npm')
-        expect(args).to.include.members(['doomain@latest', '--force', '--prefer-online', '--offline=false'])
+        expect(args).to.include.members(['doomain@latest', '--prefer-online', '--offline=false'])
+        expect(args).not.to.include('--force')
         cacheDirectory = cacheDirectoryFrom(options)
         expect(cacheDirectory).not.to.equal('')
         expect(existsSync(cacheDirectory)).to.equal(true)
@@ -52,6 +53,19 @@ describe('self update', () => {
     expect(invocation.command).to.equal('npm')
     expect(invocation.options.shell).to.equal(true)
     expect(invocation.options.env.npm_config_cache).to.equal('C:\\cache')
+  })
+
+  it('removes inherited cache settings regardless of environment key casing', () => {
+    const invocation = npmInstallCommand('/fresh-cache', 'win32', {
+      NPM_CONFIG_CACHE: 'C:\\old-cache',
+      npm_config_cache: 'C:\\another-old-cache',
+      PATH: 'C:\\bin',
+    })
+
+    expect(invocation.options.env).to.deep.equal({
+      npm_config_cache: '/fresh-cache',
+      PATH: 'C:\\bin',
+    })
   })
 
   it('reports npm failures and removes the temporary cache', async () => {

@@ -56,16 +56,22 @@ function runProcess(command: string, args: string[], options: ProcessOptions): P
 export function npmInstallCommand(
   cacheDirectory: string,
   platform: NodeJS.Platform = process.platform,
+  environment: NodeJS.ProcessEnv = process.env,
 ): {
   args: string[]
   command: string
   options: ProcessOptions
 } {
+  const env = Object.fromEntries(
+    Object.entries(environment).filter(([key]) => key.toLowerCase() !== 'npm_config_cache'),
+  )
+  env.npm_config_cache = cacheDirectory
+
   return {
     command: 'npm',
-    args: ['install', '--global', 'doomain@latest', '--force', '--prefer-online', '--offline=false'],
+    args: ['install', '--global', 'doomain@latest', '--prefer-online', '--offline=false'],
     options: {
-      env: { ...process.env, npm_config_cache: cacheDirectory },
+      env,
       shell: platform === 'win32',
     },
   }
@@ -94,6 +100,6 @@ export async function installLatestVersion(options: SelfUpdateOptions = {}): Pro
     const message = error instanceof Error ? error.message : String(error)
     throw new DoomainError('SELF_UPDATE_FAILED', `Unable to update doomain: ${message}`)
   } finally {
-    await rm(cacheDirectory, { force: true, recursive: true })
+    await rm(cacheDirectory, { force: true, recursive: true }).catch(() => undefined)
   }
 }
