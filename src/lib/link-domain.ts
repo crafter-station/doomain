@@ -5,7 +5,7 @@ import { Effect } from 'effect'
 
 import { loadConfig } from './config.js'
 import { resolveProviderTarget } from './domain-provider.js'
-import type { DoomainEffect } from './effect.js'
+import { type DoomainEffect, tryPromise } from './effect.js'
 import { DoomainError } from './errors.js'
 import { detectLocalVercelProject } from './local-vercel.js'
 import { createProvider } from './providers/registry.js'
@@ -528,7 +528,7 @@ function resolveDnsForce(
 
     reportProgress(input, 'dns:override-confirm', `Existing DNS records point ${opts.plan.domain} somewhere else`)
     const confirmed = input.confirmDnsOverride
-      ? yield* Effect.promise(() => input.confirmDnsOverride?.(warning) ?? Promise.resolve(false))
+      ? yield* tryPromise(() => input.confirmDnsOverride?.(warning) ?? Promise.resolve(false), 'DOMAIN_LINK_FAILED')
       : false
     if (!confirmed) return yield* Effect.fail(dnsTargetConflictError(warning))
 

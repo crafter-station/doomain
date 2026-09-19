@@ -66,6 +66,13 @@ function resolverFor(spec: DnsResolverSpec): Resolver | undefined {
   return resolver
 }
 
+function resolverErrorCode(error: unknown): string | undefined {
+  const cause = error instanceof DoomainError ? error.details : error
+  return cause && typeof cause === 'object' && 'code' in cause && typeof cause.code === 'string'
+    ? cause.code
+    : undefined
+}
+
 function queryResolver(fqdn: string, type: DnsRecordType, resolver?: Resolver): DoomainEffect<DnsAnswer[]> {
   return Effect.gen(function* () {
     if (type === 'A') {
@@ -109,7 +116,13 @@ export function observeDnsRecord(
     specs.map((spec) =>
       Effect.gen(function* () {
         const servers = spec.servers ?? getServers()
-        const result = yield* queryResolver(fqdn, target.type, resolverFor(spec)).pipe(Effect.either)
+        const result = yield* Effect.try({
+          try: () => resolverFor(spec),
+          catch: (cause) => new DoomainError('DNS_DIAGNOSE_FAILED', String(cause), cause),
+        }).pipe(
+          Effect.flatMap((resolver) => queryResolver(fqdn, target.type, resolver)),
+          Effect.either,
+        )
         if (result._tag === 'Right') {
           const answers = result.right
           return {
@@ -126,10 +139,7 @@ export function observeDnsRecord(
           }
         } else {
           const error = result.left
-          const errorCode =
-            error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
-              ? error.code
-              : undefined
+          const errorCode = resolverErrorCode(error)
           return {
             answers: [],
             elapsedMs,

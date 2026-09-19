@@ -261,6 +261,16 @@ describe('providers', () => {
     expect(result.data.account).to.equal('work')
   })
 
+  it('preserves the provider-not-found JSON error contract', async () => {
+    const { stdout } = await runCommand('providers verify unsupported --json')
+    const result = JSON.parse(stdout) as { error: { code: string; message: string }; ok: boolean }
+
+    expect(result).to.deep.equal({
+      error: { code: 'PROVIDER_NOT_FOUND', message: 'Unsupported DNS provider: unsupported' },
+      ok: false,
+    })
+  })
+
   it('uses provider environment credentials when verifying a named account', async () => {
     process.env.SPACESHIP_API_KEY = 'env_key'
     process.env.SPACESHIP_API_SECRET = 'env_secret'

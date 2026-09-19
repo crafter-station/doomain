@@ -11,6 +11,13 @@ export function trySync<A>(evaluate: () => A, fallbackCode: DoomainErrorCode): D
   })
 }
 
+export function tryPromise<A>(evaluate: () => PromiseLike<A>, fallbackCode: DoomainErrorCode): DoomainEffect<A> {
+  return Effect.tryPromise({
+    try: evaluate,
+    catch: (error) => toDoomainError(error, fallbackCode),
+  })
+}
+
 export async function runDoomainEffect<A>(effect: DoomainEffect<A>): Promise<A> {
   const result = await Effect.runPromise(Effect.either(effect))
   if (result._tag === 'Left') throw result.left

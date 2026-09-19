@@ -4,7 +4,7 @@ import { type DnsPropagationResult, type DnsResolverObservation, waitForDnsPropa
 import { reconcileDesiredRecord } from './dns-reconciliation.js'
 import { inferAddressRecordType, normalizeAddressRecordTarget } from './dns-records.js'
 import { type ResolvedDnsTarget, resolveProviderTarget } from './domain-provider.js'
-import { type DoomainEffect, trySync } from './effect.js'
+import { type DoomainEffect, tryPromise, trySync } from './effect.js'
 import { DoomainError } from './errors.js'
 import { type DnsOverrideWarning, withProviderRecordOptions } from './link-domain.js'
 import { createProvider } from './providers/registry.js'
@@ -228,7 +228,7 @@ export function pointDomain(
     if (!force && plan.conflicts.length > 0) {
       const warning = conflictWarning(resolved, provider, record, plan.conflicts)
       force = input.confirmDnsOverride
-        ? yield* Effect.promise(() => input.confirmDnsOverride?.(warning) ?? Promise.resolve(false))
+        ? yield* tryPromise(() => input.confirmDnsOverride?.(warning) ?? Promise.resolve(false), 'DNS_POINT_FAILED')
         : false
       if (!force) return yield* Effect.fail(dnsTargetConflictError(warning))
       plan = yield* provider.planChanges(zone, [record], { force: true })

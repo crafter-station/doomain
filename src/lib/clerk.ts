@@ -119,11 +119,10 @@ export function createClerkPlatformClient(config: { platformApiKey: string }) {
           }),
         catch: (cause) => new DoomainError('DOMAIN_LINK_FAILED', 'Clerk API request failed.', cause),
       })
-      const body = yield* Effect.tryPromise(() => response.json()).pipe(
-        Effect.mapError((cause) => new DoomainError('DOMAIN_LINK_FAILED', 'Clerk returned invalid JSON.', cause)),
-      )
-
       if (!response.ok) {
+        const body = yield* Effect.tryPromise(() => response.json()).pipe(
+          Effect.catchAll(() => Effect.succeed(undefined)),
+        )
         if (response.status === 401 || response.status === 403) {
           return yield* Effect.fail(
             new DoomainError(
@@ -149,7 +148,9 @@ export function createClerkPlatformClient(config: { platformApiKey: string }) {
         )
       }
 
-      return body as T
+      return (yield* Effect.tryPromise(() => response.json()).pipe(
+        Effect.mapError((cause) => new DoomainError('DOMAIN_LINK_FAILED', 'Clerk returned invalid JSON.', cause)),
+      )) as T
     })
   }
 

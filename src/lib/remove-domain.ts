@@ -3,7 +3,7 @@ import { Effect } from 'effect'
 import { reconcileRecordRemoval } from './dns-reconciliation.js'
 import { type DnsRecordSelector, recordMatchesSelector } from './dns-records.js'
 import { type ResolvedDnsTarget, resolveProviderTarget } from './domain-provider.js'
-import type { DoomainEffect } from './effect.js'
+import { type DoomainEffect, tryPromise } from './effect.js'
 import { DoomainError } from './errors.js'
 import { createProvider } from './providers/registry.js'
 import type { DnsChangePlan, DnsProvider, DnsRecord, DnsRecordType } from './providers/types.js'
@@ -129,7 +129,7 @@ export function removeDomain(
 
     if (matched.length > 1 && !input.allMatching) {
       const confirmed = input.confirmMultiple
-        ? yield* Effect.promise(() => input.confirmMultiple?.(matched) ?? Promise.resolve(false))
+        ? yield* tryPromise(() => input.confirmMultiple?.(matched) ?? Promise.resolve(false), 'DNS_REMOVE_FAILED')
         : false
       if (!confirmed) return yield* Effect.fail(ambiguousDeletionError(input, matched))
     }

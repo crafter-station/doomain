@@ -1,4 +1,5 @@
 import { strict as assert } from 'node:assert'
+import { Effect } from 'effect'
 import { describe, it } from 'mocha'
 
 import {
@@ -62,11 +63,12 @@ describe('DNS reconciliation', () => {
     const result = await reconcileDesiredRecord({
       dependencies: {
         now: () => now,
-        sleep: async (milliseconds) => {
-          now += milliseconds
-          polls += 1
-          records = polls === 1 ? [] : [{ ...desired }]
-        },
+        sleep: (milliseconds) =>
+          Effect.sync(() => {
+            now += milliseconds
+            polls += 1
+            records = polls === 1 ? [] : [{ ...desired }]
+          }),
       },
       desired,
       intervalMs: 1,
@@ -95,10 +97,11 @@ describe('DNS reconciliation', () => {
     const result = await reconcileRecordRemoval({
       dependencies: {
         now: () => now,
-        sleep: async (milliseconds) => {
-          now += milliseconds
-          records = []
-        },
+        sleep: (milliseconds) =>
+          Effect.sync(() => {
+            now += milliseconds
+            records = []
+          }),
       },
       intervalMs: 1,
       provider,
@@ -126,9 +129,10 @@ describe('DNS reconciliation', () => {
       reconcileRecordRemoval({
         dependencies: {
           now: () => now,
-          sleep: async (milliseconds) => {
-            now += milliseconds
-          },
+          sleep: (milliseconds) =>
+            Effect.sync(() => {
+              now += milliseconds
+            }),
         },
         intervalMs: 1,
         provider,
@@ -155,9 +159,10 @@ describe('DNS reconciliation', () => {
       reconcileDesiredRecord({
         dependencies: {
           now: () => now,
-          sleep: async (milliseconds) => {
-            now += milliseconds
-          },
+          sleep: (milliseconds) =>
+            Effect.sync(() => {
+              now += milliseconds
+            }),
         },
         desired,
         intervalMs: 1,
@@ -184,9 +189,10 @@ describe('DNS reconciliation', () => {
       reconcileDesiredRecord({
         dependencies: {
           now: () => now,
-          sleep: async (milliseconds) => {
-            now += milliseconds
-          },
+          sleep: (milliseconds) =>
+            Effect.sync(() => {
+              now += milliseconds
+            }),
         },
         desired,
         intervalMs: 1,
@@ -213,9 +219,10 @@ describe('DNS reconciliation', () => {
       reconcileDesiredRecord({
         dependencies: {
           now: () => now,
-          sleep: async (milliseconds) => {
-            now += milliseconds
-          },
+          sleep: (milliseconds) =>
+            Effect.sync(() => {
+              now += milliseconds
+            }),
         },
         desired,
         intervalMs: 1,

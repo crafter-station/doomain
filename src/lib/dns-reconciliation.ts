@@ -7,7 +7,7 @@ import type { DnsProvider, DnsRecord, DnsRecordInput, DnsZone } from './provider
 
 interface RetryDependencies {
   now?: () => number
-  sleep?: (milliseconds: number) => Promise<void>
+  sleep?: (milliseconds: number) => DoomainEffect<void, never>
 }
 
 export interface ReconciliationResult {
@@ -17,7 +17,7 @@ export interface ReconciliationResult {
   reconciled: true
 }
 
-const sleep = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds))
+const sleep = (milliseconds: number): DoomainEffect<void, never> => Effect.sleep(milliseconds)
 
 export function reconcileDesiredRecord(input: {
   desired: DnsRecordInput
@@ -58,7 +58,7 @@ export function reconcileDesiredRecord(input: {
 
       input.progress?.('Waiting for the DNS provider to publish the accepted change')
       const remaining = deadline - now()
-      yield* Effect.promise(() => wait(Math.min(input.intervalMs ?? 1000, Math.max(0, remaining))))
+      yield* wait(Math.min(input.intervalMs ?? 1000, Math.max(0, remaining)))
     }
   })
 }
@@ -102,7 +102,7 @@ export function reconcileRecordRemoval(input: {
 
       input.progress?.('Waiting for the DNS provider to publish the accepted deletion')
       const remaining = deadline - now()
-      yield* Effect.promise(() => wait(Math.min(input.intervalMs ?? 1000, Math.max(0, remaining))))
+      yield* wait(Math.min(input.intervalMs ?? 1000, Math.max(0, remaining)))
     }
   })
 }

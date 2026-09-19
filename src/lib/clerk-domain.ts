@@ -2,7 +2,7 @@ import { Effect } from 'effect'
 
 import { type ClerkDomainStatus, createClerkPlatformClient, resolveClerkPlatformConfig } from './clerk.js'
 import { resolveProviderTarget } from './domain-provider.js'
-import { type DoomainEffect, trySync } from './effect.js'
+import { type DoomainEffect, tryPromise, trySync } from './effect.js'
 import { DoomainError } from './errors.js'
 import { type DnsOverrideWarning, withProviderRecordOptions } from './link-domain.js'
 import { createProvider } from './providers/registry.js'
@@ -236,7 +236,7 @@ export function addClerkProductionDomain(input: AddClerkDomainInput): DoomainEff
         zoneDomain: resolved.target.zoneDomain,
       }
       forceDns = input.confirmDnsOverride
-        ? yield* Effect.promise(() => input.confirmDnsOverride?.(warning) ?? Promise.resolve(false))
+        ? yield* tryPromise(() => input.confirmDnsOverride?.(warning) ?? Promise.resolve(false), 'DOMAIN_LINK_FAILED')
         : false
       if (!forceDns) return yield* Effect.fail(dnsConflictError(warning, created.id))
       dnsPlan = yield* provider.planChanges(zone, records, { force: true })

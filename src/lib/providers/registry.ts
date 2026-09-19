@@ -1,6 +1,6 @@
 import { Effect } from 'effect'
 
-import type { DoomainEffect } from '../effect.js'
+import { type DoomainEffect, trySync } from '../effect.js'
 import { DoomainError } from '../errors.js'
 import { ensureProviderId } from '../validate.js'
 import { cloudflareProviderDefinition } from './cloudflare/index.js'
@@ -30,7 +30,7 @@ export function getProviderDefinition(id: string): DnsProviderDefinition {
 
 export function createProvider(id: string, opts: { account?: string } = {}): DoomainEffect<DnsProvider> {
   return Effect.gen(function* () {
-    const definition = getProviderDefinition(id)
+    const definition = yield* trySync(() => getProviderDefinition(id), 'PROVIDER_NOT_FOUND')
     return definition.create(yield* createProviderContext(definition, opts))
   })
 }

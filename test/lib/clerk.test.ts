@@ -99,4 +99,19 @@ describe('clerk platform client', () => {
     expect((error as DoomainError).code).to.equal('CLERK_AUTH_FAILED')
     expect((error as Error).message).to.include('CLERK_PLATFORM_API_KEY')
   })
+
+  it('preserves the Clerk auth error for a non-JSON authorization response', async () => {
+    globalThis.fetch = (async () => new Response('Forbidden', { status: 403 })) as typeof fetch
+
+    let error: unknown
+    try {
+      await createClerkPlatformClient({ platformApiKey: 'ak_bad' }).fetchApplication('app_123')
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(error).to.be.instanceOf(DoomainError)
+    expect((error as DoomainError).code).to.equal('CLERK_AUTH_FAILED')
+    expect((error as Error).message).to.include('Clerk API error (403)')
+  })
 })
