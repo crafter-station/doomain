@@ -135,6 +135,27 @@ function findProjectDomainTarget(raw: unknown, domain: string): unknown {
 }
 
 export function createVercelClient(config: VercelConfig, clientOpts: { transportErrorCode?: DoomainErrorCode } = {}) {
+  const decodeErrorCode = clientOpts.transportErrorCode ?? 'DOMAIN_LINK_FAILED'
+
+  function decode<A>(label: string, value: unknown, validate: (value: unknown) => A): DoomainEffect<A> {
+    return Effect.try({
+      try: () => validate(value),
+      catch: (cause) =>
+        new DoomainError(decodeErrorCode, `Vercel returned an invalid ${label} response.`, {
+          cause: cause instanceof Error ? cause.message : String(cause),
+          response: value,
+        }),
+    })
+  }
+
+  function recordResponse(label: string, value: unknown): DoomainEffect<Record<string, unknown>> {
+    return decode(label, value, (candidate) => {
+      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate))
+        throw new TypeError('Expected an object.')
+      return candidate as Record<string, unknown>
+    })
+  }
+
   function request<T>(path: string, init: RequestInit = {}, opts: { team?: boolean } = {}): DoomainEffect<T> {
     return Effect.gen(function* () {
       const response = yield* Effect.tryPromise({
@@ -192,7 +213,15 @@ export function createVercelClient(config: VercelConfig, clientOpts: { transport
           const query = new URLSearchParams({ limit: '100' })
           if (cursor) query.set('until', cursor)
 
-          const result = yield* request<VercelTeamsResponse>(`/v2/teams?${query.toString()}`, {}, { team: false })
+          const raw = yield* request<unknown>(`/v2/teams?${query.toString()}`, {}, { team: false })
+          const result = yield* decode('teams', raw, (candidate) => {
+            const response = candidate as Partial<VercelTeamsResponse> | null
+            if (!response || !Array.isArray(response.teams)) throw new TypeError('Expected a teams array.')
+            if (response.teams.some((team) => !team || typeof team.id !== 'string')) {
+              throw new TypeError('Expected every team to have an id.')
+            }
+            return response as VercelTeamsResponse
+          })
 
           for (const team of result.teams) {
             teamsById.set(team.id, {
@@ -225,7 +254,19 @@ export function createVercelClient(config: VercelConfig, clientOpts: { transport
           if (search) query.set('search', search)
           if (cursor) query.set('from', cursor)
 
-          const result = yield* request<VercelProjectsResponse>(`/v9/projects?${query.toString()}`)
+          const raw = yield* request<unknown>(`/v9/projects?${query.toString()}`)
+          const result = yield* decode('projects', raw, (candidate) => {
+            const response = candidate as Partial<VercelProjectsResponse> | null
+            if (!response || !Array.isArray(response.projects)) throw new TypeError('Expected a projects array.')
+            if (
+              response.projects.some(
+                (project) => !project || typeof project.id !== 'string' || typeof project.name !== 'string',
+              )
+            ) {
+              throw new TypeError('Expected every project to have an id and name.')
+            }
+            return response as VercelProjectsResponse
+          })
 
           for (const project of result.projects) {
             projectsById.set(project.id, {
@@ -316,7 +357,9 @@ export function createVercelClient(config: VercelConfig, clientOpts: { transport
     },
 
     getDomainConfig(domain: string): DoomainEffect<Record<string, unknown>> {
-      return request<Record<string, unknown>>(`/v6/domains/${encodeURIComponent(domain)}/config`)
+      return request<unknown>(`/v6/domains/${encodeURIComponent(domain)}/config`).pipe(
+        Effect.flatMap((value) => recordResponse('domain config', value)),
+      )
     },
 
     getRecommendedCname(domain: string): DoomainEffect<string> {
@@ -332,16 +375,22 @@ export function createVercelClient(config: VercelConfig, clientOpts: { transport
     },
 
     getProjectDomain(project: string, domain: string): DoomainEffect<Record<string, unknown>> {
-      return request<Record<string, unknown>>(
-        `/v9/projects/${encodeURIComponent(project)}/domains/${encodeURIComponent(domain)}`,
+      return request<unknown>(`/v9/projects/${encodeURIComponent(project)}/domains/${encodeURIComponent(domain)}`).pipe(
+        Effect.flatMap((value) => recordResponse('project domain', value)),
       )
     },
 
     listProjectDomains(
       project: string,
     ): DoomainEffect<Array<Record<string, unknown> & { name?: string; projectId?: string }>> {
-      return request<VercelProjectDomainsResponse>(`/v9/projects/${encodeURIComponent(project)}/domains`).pipe(
-        Effect.map((result) => result.domains ?? []),
+      return request<unknown>(`/v9/projects/${encodeURIComponent(project)}/domains`).pipe(
+        Effect.flatMap((value) =>
+          decode('project domains', value, (candidate) => {
+            const response = candidate as Partial<VercelProjectDomainsResponse> | null
+            if (!response || !Array.isArray(response.domains)) throw new TypeError('Expected a domains array.')
+            return response.domains
+          }),
+        ),
       )
     },
 
@@ -352,10 +401,10 @@ export function createVercelClient(config: VercelConfig, clientOpts: { transport
     },
 
     verifyProjectDomain(project: string, domain: string): DoomainEffect<Record<string, unknown>> {
-      return request<Record<string, unknown>>(
+      return request<unknown>(
         `/v9/projects/${encodeURIComponent(project)}/domains/${encodeURIComponent(domain)}/verify`,
         { method: 'POST' },
-      )
+      ).pipe(Effect.flatMap((value) => recordResponse('domain verification', value)))
     },
   }
 }

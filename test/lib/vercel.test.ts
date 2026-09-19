@@ -124,6 +124,19 @@ describe('vercel client', () => {
     }
   })
 
+  it('uses the caller transport error code for invalid response shapes', async () => {
+    globalThis.fetch = (async () => jsonResponse({})) as typeof fetch
+
+    try {
+      await createVercelClient({ token: 'vercel_token' }, { transportErrorCode: 'PROJECT_NOT_FOUND' }).listTeams()
+      throw new Error('Expected listTeams to fail')
+    } catch (error) {
+      expect(error).to.be.instanceOf(DoomainError)
+      expect((error as DoomainError).code).to.equal('PROJECT_NOT_FOUND')
+      expect((error as Error).message).to.equal('Vercel returned an invalid teams response.')
+    }
+  })
+
   it('does not report domain permission errors as invalid tokens', async () => {
     globalThis.fetch = (async () =>
       errorResponse(403, { error: { message: 'Not authorized to use app.example.com' } })) as typeof fetch
