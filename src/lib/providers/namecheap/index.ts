@@ -1,5 +1,8 @@
+import { Effect } from 'effect'
 import { XMLParser } from 'fast-xml-parser'
 
+import { type DoomainEffect, trySync } from '../../effect.js'
+import { type DoomainErrorCode, toDoomainError } from '../../errors.js'
 import { normalizeDomain } from '../../validate.js'
 import { ProviderError } from '../core/errors.js'
 import { assertNoConflicts, planDnsChanges } from '../core/planner.js'
@@ -45,6 +48,18 @@ interface NamecheapHost {
   Name?: string
   TTL?: number | string
   Type?: string
+}
+
+interface NamecheapApiResponse {
+  ApiResponse: {
+    CommandResponse: Record<string, unknown> & {
+      DomainDNSGetHostsResult: Record<string, unknown> & { host?: NamecheapHost | NamecheapHost[] }
+      DomainDNSSetHostsResult?: Record<string, unknown> & { IsSuccess?: unknown }
+      DomainGetListResult: Record<string, unknown> & { Domain?: NamecheapDomain | NamecheapDomain[] }
+    }
+    Errors?: { Error?: unknown }
+    Status?: string
+  }
 }
 
 function asArray<T>(value: T | T[] | undefined): T[] {
@@ -167,6 +182,7 @@ export class NamecheapProvider implements DnsProvider {
   private readonly apiUser: string
   private readonly baseUrl: string
   private readonly clientIp: string
+  private readonly transportErrorCode: DoomainErrorCode
   private readonly username: string
 
   constructor(context: ProviderContext) {
@@ -175,159 +191,196 @@ export class NamecheapProvider implements DnsProvider {
     this.username = context.credentials.username || context.credentials.apiUser
     this.clientIp = context.credentials.clientIp
     this.baseUrl = bool(context.credentials.sandbox) ? NAMECHEAP_SANDBOX_URL : NAMECHEAP_PRODUCTION_URL
+    this.transportErrorCode = context.transportErrorCode ?? 'PROVIDER_API_ERROR'
   }
 
-  async verifyCredentials(): Promise<ProviderHealth> {
-    await this.listZones()
-    return { ok: true }
+  verifyCredentials(): DoomainEffect<ProviderHealth> {
+    return this.listZones().pipe(Effect.as({ ok: true }))
   }
 
-  async listZones(): Promise<DnsZone[]> {
-    const zones: DnsZone[] = []
-    let currentPage = 1
-    let totalItems = Number.POSITIVE_INFINITY
+  listZones(): DoomainEffect<DnsZone[]> {
+    return Effect.gen(this, function* () {
+      const zones: DnsZone[] = []
+      let currentPage = 1
+      let totalItems = Number.POSITIVE_INFINITY
 
-    while (zones.length < totalItems) {
-      const response = await this.request('namecheap.domains.getList', { Page: String(currentPage), PageSize: '100' })
-      const commandResponse = response.ApiResponse.CommandResponse
-      const result = commandResponse.DomainGetListResult
-      const domains = asArray<NamecheapDomain>(result.Domain)
+      while (zones.length < totalItems) {
+        const response = yield* this.request('namecheap.domains.getList', {
+          Page: String(currentPage),
+          PageSize: '100',
+        })
+        const commandResponse = response.ApiResponse.CommandResponse
+        const result = commandResponse.DomainGetListResult
+        const domains = asArray<NamecheapDomain>(result.Domain)
 
-      for (const domain of domains) {
-        const zone = toZone(domain)
-        if (zone) zones.push(zone)
+        for (const domain of domains) {
+          const zone = toZone(domain)
+          if (zone) zones.push(zone)
+        }
+
+        totalItems = pagingTotal(commandResponse, result, zones.length)
+        if (domains.length === 0) break
+        currentPage += 1
       }
 
-      totalItems = pagingTotal(commandResponse, result, zones.length)
-      if (domains.length === 0) break
-      currentPage += 1
-    }
-
-    return zones
-  }
-
-  async getZone(domain: string): Promise<DnsZone | null> {
-    const normalized = normalizeDomain(domain)
-    const zones = await this.listZones()
-    return zones.find((zone) => zone.name === normalized) ?? null
-  }
-
-  async listRecords(zone: DnsZone): Promise<DnsRecord[]> {
-    const { sld, tld } = splitDomain(zone.name)
-    const response = await this.request('namecheap.domains.dns.getHosts', { SLD: sld, TLD: tld })
-    const hosts = asArray<NamecheapHost>(response.ApiResponse.CommandResponse.DomainDNSGetHostsResult.host)
-    return hosts.flatMap((host) => {
-      const record = toDnsRecord(host)
-      return record ? [record] : []
+      return zones
     })
   }
 
-  async planChanges(zone: DnsZone, desired: DnsRecordInput[], opts: { force?: boolean } = {}): Promise<DnsChangePlan> {
-    return planDnsChanges({
-      desired,
-      existing: await this.listRecords(zone),
-      force: opts.force,
-      providerId: this.id,
-      zone,
+  getZone(domain: string): DoomainEffect<DnsZone | null> {
+    return Effect.gen(this, function* () {
+      const normalized = yield* trySync(() => normalizeDomain(domain), 'INVALID_INPUT')
+      const zones = yield* this.listZones()
+      return zones.find((zone) => zone.name === normalized) ?? null
     })
   }
 
-  async applyChanges(zone: DnsZone, plan: DnsChangePlan): Promise<{ applied: DnsChange[]; skipped: DnsRecordInput[] }> {
-    assertNoConflicts(this.id, plan)
-    const finalRecords = [...plan.existing]
-    const applied: DnsChange[] = []
-    const skipped: DnsRecordInput[] = []
-
-    for (const change of plan.changes) {
-      if (change.action === 'skip') {
-        skipped.push(change.record)
-        continue
-      }
-
-      if (change.action === 'delete') {
-        const index = finalRecords.findIndex((record) => sameRecord(record, change.existing))
-        if (index !== -1) finalRecords.splice(index, 1)
-      } else if (change.action === 'update') {
-        const index = finalRecords.findIndex((record) => sameRecord(record, change.existing))
-        if (index !== -1) finalRecords[index] = { ...change.existing, ...change.record }
-      } else {
-        finalRecords.push(inputToRecord(change.record))
-      }
-
-      applied.push(change)
-    }
-
-    if (applied.length > 0) await this.setHosts(zone, finalRecords)
-    return { applied, skipped }
+  listRecords(zone: DnsZone): DoomainEffect<DnsRecord[]> {
+    return Effect.gen(this, function* () {
+      const { sld, tld } = yield* trySync(() => splitDomain(zone.name), 'PROVIDER_ZONE_NOT_FOUND')
+      const response = yield* this.request('namecheap.domains.dns.getHosts', { SLD: sld, TLD: tld })
+      const hosts = asArray<NamecheapHost>(response.ApiResponse.CommandResponse.DomainDNSGetHostsResult.host)
+      return hosts.flatMap((host) => {
+        const record = toDnsRecord(host)
+        return record ? [record] : []
+      })
+    })
   }
 
-  async upsertRecord(zone: DnsZone, record: DnsRecordInput): Promise<DnsRecord> {
-    const plan = await this.planChanges(zone, [record], { force: true })
-    await this.applyChanges(zone, plan)
-    return { ...record, ttl: record.ttl ?? capabilities.defaultTtl }
-  }
-
-  async deleteRecord(zone: DnsZone, record: DnsRecord): Promise<void> {
-    const records = (await this.listRecords(zone)).filter((item) => !sameRecord(item, record))
-    await this.setHosts(zone, records)
-  }
-
-  private async setHosts(zone: DnsZone, records: DnsRecord[]): Promise<void> {
-    const { sld, tld } = splitDomain(zone.name)
-    const response = await this.request(
-      'namecheap.domains.dns.setHosts',
-      { SLD: sld, TLD: tld, ...hostParams(records) },
-      { method: 'POST' },
+  planChanges(zone: DnsZone, desired: DnsRecordInput[], opts: { force?: boolean } = {}): DoomainEffect<DnsChangePlan> {
+    return this.listRecords(zone).pipe(
+      Effect.map((existing) => planDnsChanges({ desired, existing, force: opts.force, providerId: this.id, zone })),
     )
-    const result = response.ApiResponse.CommandResponse.DomainDNSSetHostsResult
-    if (!bool(result?.IsSuccess)) {
-      throw new ProviderError(
-        'namecheap',
-        'PROVIDER_API_ERROR',
-        'Namecheap did not confirm DNS host records were updated.',
-        result,
-      )
-    }
   }
 
-  private async request(command: string, params: Record<string, string>, opts: { method?: 'GET' | 'POST' } = {}) {
+  applyChanges(zone: DnsZone, plan: DnsChangePlan): DoomainEffect<{ applied: DnsChange[]; skipped: DnsRecordInput[] }> {
+    return Effect.gen(this, function* () {
+      yield* assertNoConflicts(this.id, plan)
+      const finalRecords = [...plan.existing]
+      const applied: DnsChange[] = []
+      const skipped: DnsRecordInput[] = []
+
+      for (const change of plan.changes) {
+        if (change.action === 'skip') {
+          skipped.push(change.record)
+          continue
+        }
+
+        if (change.action === 'delete') {
+          const index = finalRecords.findIndex((record) => sameRecord(record, change.existing))
+          if (index !== -1) finalRecords.splice(index, 1)
+        } else if (change.action === 'update') {
+          const index = finalRecords.findIndex((record) => sameRecord(record, change.existing))
+          if (index !== -1) finalRecords[index] = { ...change.existing, ...change.record }
+        } else {
+          finalRecords.push(inputToRecord(change.record))
+        }
+
+        applied.push(change)
+      }
+
+      if (applied.length > 0) yield* this.setHosts(zone, finalRecords)
+      return { applied, skipped }
+    })
+  }
+
+  upsertRecord(zone: DnsZone, record: DnsRecordInput): DoomainEffect<DnsRecord> {
+    return Effect.gen(this, function* () {
+      const plan = yield* this.planChanges(zone, [record], { force: true })
+      yield* this.applyChanges(zone, plan)
+      return { ...record, ttl: record.ttl ?? capabilities.defaultTtl }
+    })
+  }
+
+  deleteRecord(zone: DnsZone, record: DnsRecord): DoomainEffect<void> {
+    return Effect.gen(this, function* () {
+      const records = (yield* this.listRecords(zone)).filter((item) => !sameRecord(item, record))
+      yield* this.setHosts(zone, records)
+    })
+  }
+
+  private setHosts(zone: DnsZone, records: DnsRecord[]): DoomainEffect<void> {
+    return Effect.gen(this, function* () {
+      const { sld, tld } = yield* trySync(() => splitDomain(zone.name), 'PROVIDER_ZONE_NOT_FOUND')
+      const response = yield* this.request(
+        'namecheap.domains.dns.setHosts',
+        { SLD: sld, TLD: tld, ...hostParams(records) },
+        { method: 'POST' },
+      )
+      const result = response.ApiResponse.CommandResponse.DomainDNSSetHostsResult
+      if (!bool(result?.IsSuccess)) {
+        return yield* Effect.fail(
+          new ProviderError(
+            'namecheap',
+            'PROVIDER_API_ERROR',
+            'Namecheap did not confirm DNS host records were updated.',
+            result,
+          ),
+        )
+      }
+    })
+  }
+
+  private request(
+    command: string,
+    params: Record<string, string>,
+    opts: { method?: 'GET' | 'POST' } = {},
+  ): DoomainEffect<NamecheapApiResponse> {
     if (!this.clientIp) {
-      throw new ProviderError(
-        'namecheap',
-        'MISSING_CREDENTIALS',
-        'Namecheap requires a whitelisted IPv4 ClientIp credential.',
+      return Effect.fail(
+        new ProviderError(
+          'namecheap',
+          'MISSING_CREDENTIALS',
+          'Namecheap requires a whitelisted IPv4 ClientIp credential.',
+        ),
       )
     }
 
-    const query = new URLSearchParams({
-      ApiKey: this.apiKey,
-      ApiUser: this.apiUser,
-      ClientIp: this.clientIp,
-      Command: command,
-      UserName: this.username,
-      ...params,
+    return Effect.gen(this, function* () {
+      const query = new URLSearchParams({
+        ApiKey: this.apiKey,
+        ApiUser: this.apiUser,
+        ClientIp: this.clientIp,
+        Command: command,
+        UserName: this.username,
+        ...params,
+      })
+      const method = opts.method ?? 'GET'
+      const response = yield* Effect.tryPromise({
+        try: (signal) =>
+          fetch(method === 'POST' ? this.baseUrl : `${this.baseUrl}?${query.toString()}`, {
+            ...(method === 'POST'
+              ? { body: query.toString(), headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, method }
+              : {}),
+            signal,
+          }),
+        catch: (cause) => toDoomainError(cause, this.transportErrorCode),
+      })
+
+      if (!response.ok) {
+        return yield* Effect.fail(
+          new ProviderError('namecheap', 'PROVIDER_API_ERROR', `Namecheap API error (${response.status}).`),
+        )
+      }
+
+      const text = yield* Effect.tryPromise({
+        try: () => response.text(),
+        catch: (cause) =>
+          new ProviderError('namecheap', 'PROVIDER_API_ERROR', 'Invalid Namecheap API response.', cause),
+      })
+      const data = yield* trySync(() => parser.parse(text) as NamecheapApiResponse, 'PROVIDER_API_ERROR')
+      const status = data.ApiResponse?.Status
+      if (status !== 'OK') {
+        const message = getErrorMessage(asArray(data.ApiResponse?.Errors?.Error)[0] ?? 'Namecheap API error.')
+        const code = providerCodeFromNamecheapError(message)
+        const help = namecheapSetupHelp(code)
+        return yield* Effect.fail(
+          new ProviderError('namecheap', code, help ? `${message} ${help}` : message, data.ApiResponse?.Errors),
+        )
+      }
+
+      return data
     })
-    const method = opts.method ?? 'GET'
-    const response = await fetch(method === 'POST' ? this.baseUrl : `${this.baseUrl}?${query.toString()}`, {
-      ...(method === 'POST'
-        ? { body: query.toString(), headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, method }
-        : {}),
-    })
-
-    if (!response.ok) {
-      throw new ProviderError('namecheap', 'PROVIDER_API_ERROR', `Namecheap API error (${response.status}).`)
-    }
-
-    const data = parser.parse(await response.text())
-    const status = data.ApiResponse?.Status
-    if (status !== 'OK') {
-      const message = getErrorMessage(asArray(data.ApiResponse?.Errors?.Error)[0] ?? 'Namecheap API error.')
-      const code = providerCodeFromNamecheapError(message)
-      const help = namecheapSetupHelp(code)
-      throw new ProviderError('namecheap', code, help ? `${message} ${help}` : message, data.ApiResponse?.Errors)
-    }
-
-    return data
   }
 }
 

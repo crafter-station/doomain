@@ -1,5 +1,6 @@
 import { Args, Command, Flags } from '@oclif/core'
 import { diagnoseDns } from '../../lib/diagnose-dns.js'
+import { runDoomainEffect } from '../../lib/effect.js'
 import { accountFlag, jsonFlag, providerFlag } from '../../lib/flags.js'
 import { createOutput, outputError } from '../../lib/output.js'
 
@@ -29,13 +30,15 @@ export default class DnsDiagnose extends Command {
     const spinner = out.json ? undefined : out.spinner()
     try {
       spinner?.start(`Diagnosing ${args.domain}`)
-      const result = await diagnoseDns({
-        account: flags.account,
-        domain: args.domain,
-        provider: flags.provider,
-        recordType: flags.type as 'A' | 'AAAA' | 'CNAME' | undefined,
-        target: flags.target,
-      })
+      const result = await runDoomainEffect(
+        diagnoseDns({
+          account: flags.account,
+          domain: args.domain,
+          provider: flags.provider,
+          recordType: flags.type as 'A' | 'AAAA' | 'CNAME' | undefined,
+          target: flags.target,
+        }),
+      )
       spinner?.stop('DNS diagnosis complete')
       out.result(result)
       out.info(`Provider: ${result.provider}/${result.account} (${result.zoneDomain})`)

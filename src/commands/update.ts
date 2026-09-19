@@ -1,5 +1,5 @@
 import { Command } from '@oclif/core'
-
+import { runDoomainEffect } from '../lib/effect.js'
 import { jsonFlag } from '../lib/flags.js'
 import { createOutput, outputError } from '../lib/output.js'
 import { installLatestVersion } from '../lib/self-update.js'
@@ -20,7 +20,7 @@ export default class Update extends Command {
 
     try {
       spinner.start('Downloading the latest doomain version from npm')
-      const result = await installLatestVersion()
+      const result = await runDoomainEffect(installLatestVersion())
       spinner.stop('Installed the latest doomain version')
       out.result(result)
       out.success('Installed the latest doomain version from npm.')

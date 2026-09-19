@@ -1,9 +1,11 @@
 import { resolve4, resolveCname, resolveTxt } from 'node:dns/promises'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, parse } from 'node:path'
+import { Effect } from 'effect'
 
 import { loadConfig } from './config.js'
 import { resolveProviderTarget } from './domain-provider.js'
+import { type DoomainEffect, tryPromise } from './effect.js'
 import { DoomainError } from './errors.js'
 import { detectLocalVercelProject } from './local-vercel.js'
 import { createProvider } from './providers/registry.js'
@@ -102,11 +104,17 @@ function recordFqdn(record: DnsRecordInput, zoneDomain: string): string {
   return record.name === '@' ? zoneDomain : `${record.name}.${zoneDomain}`
 }
 
-async function resolveConfiguredDomain(domain?: string): Promise<string> {
-  const config = await loadConfig()
-  const resolved = domain ?? process.env.DOOMAIN_DOMAIN ?? config.defaults?.domain
-  if (!resolved) throw new DoomainError('MISSING_ARGUMENT', 'Domain is required. Use --domain or set a default domain.')
-  return resolved
+function resolveConfiguredDomain(domain?: string): DoomainEffect<string> {
+  return Effect.gen(function* () {
+    const config = yield* loadConfig()
+    const resolved = domain ?? process.env.DOOMAIN_DOMAIN ?? config.defaults?.domain
+    if (!resolved) {
+      return yield* Effect.fail(
+        new DoomainError('MISSING_ARGUMENT', 'Domain is required. Use --domain or set a default domain.'),
+      )
+    }
+    return resolved
+  })
 }
 
 function findPackageProjectName(start = process.cwd()): string | undefined {
@@ -159,63 +167,71 @@ function projectSuggestions(projectName: string, projects: VercelProject[]): Arr
     .map(({ project }) => ({ id: project.id, name: project.name }))
 }
 
-async function resolvePackageProject(projectName: string): Promise<string> {
-  const vercel = createVercelClient(await resolveVercelConfig())
-  const projects = await vercel.listProjects(projectName)
-  const match = projects.find((project) => project.name === projectName || project.id === projectName)
-  if (match) return match.name
+function resolvePackageProject(projectName: string): DoomainEffect<string> {
+  return Effect.gen(function* () {
+    const vercel = createVercelClient(yield* resolveVercelConfig())
+    const projects = yield* vercel.listProjects(projectName)
+    const match = projects.find((project) => project.name === projectName || project.id === projectName)
+    if (match) return match.name
 
-  const allProjects = await vercel.listProjects().catch(() => [])
-  const suggestions = projectSuggestions(projectName, [...projects, ...allProjects])
+    const allProjects = yield* vercel.listProjects().pipe(Effect.catchAll(() => Effect.succeed([])))
+    const suggestions = projectSuggestions(projectName, [...projects, ...allProjects])
 
-  throw new DoomainError(
-    'VERCEL_PROJECT_NOT_LINKED',
-    `No Vercel project named ${projectName} was found. Pass --project to choose a project.`,
-    {
-      project: projectName,
-      projectSource: 'packageJson',
-      suggestions,
-    },
-  )
+    return yield* Effect.fail(
+      new DoomainError(
+        'VERCEL_PROJECT_NOT_LINKED',
+        `No Vercel project named ${projectName} was found. Pass --project to choose a project.`,
+        { project: projectName, projectSource: 'packageJson', suggestions },
+      ),
+    )
+  })
 }
 
-async function resolveProject(
+function resolveProject(
   project?: string,
-): Promise<{ project: string; projectSource: LinkDomainProjectSource; localProjectDetected: boolean }> {
-  if (project) return { project, projectSource: 'flag', localProjectDetected: false }
+): DoomainEffect<{ project: string; projectSource: LinkDomainProjectSource; localProjectDetected: boolean }> {
+  return Effect.gen(function* () {
+    if (project) return { project, projectSource: 'flag', localProjectDetected: false }
 
-  const config = await loadConfig()
-  const envProject = process.env.DOOMAIN_PROJECT
-  if (envProject) return { project: envProject, projectSource: 'env', localProjectDetected: false }
-  if (config.defaults?.project)
-    return { project: config.defaults.project, projectSource: 'config', localProjectDetected: false }
+    const config = yield* loadConfig()
+    const envProject = process.env.DOOMAIN_PROJECT
+    if (envProject) return { project: envProject, projectSource: 'env', localProjectDetected: false }
+    if (config.defaults?.project)
+      return { project: config.defaults.project, projectSource: 'config', localProjectDetected: false }
 
-  const localProject = detectLocalVercelProject()
-  if (localProject)
-    return { project: localProject.projectId, projectSource: 'vercelProjectFile', localProjectDetected: true }
+    const localProject = detectLocalVercelProject()
+    if (localProject)
+      return { project: localProject.projectId, projectSource: 'vercelProjectFile', localProjectDetected: true }
 
-  const packageProject = findPackageProjectName()
-  if (packageProject) {
-    return {
-      project: await resolvePackageProject(packageProject),
-      projectSource: 'packageJson',
-      localProjectDetected: false,
+    const packageProject = findPackageProjectName()
+    if (packageProject) {
+      return {
+        project: yield* resolvePackageProject(packageProject),
+        projectSource: 'packageJson',
+        localProjectDetected: false,
+      }
     }
-  }
 
-  throw new DoomainError(
-    'VERCEL_PROJECT_NOT_LINKED',
-    'No Vercel project could be inferred. Run inside a project with package.json/.vercel/project.json or pass --project.',
-  )
+    return yield* Effect.fail(
+      new DoomainError(
+        'VERCEL_PROJECT_NOT_LINKED',
+        'No Vercel project could be inferred. Run inside a project with package.json/.vercel/project.json or pass --project.',
+      ),
+    )
+  })
 }
 
-async function resolveZone(provider: DnsProvider, zoneDomain: string): Promise<DnsZone> {
-  const zone = await provider.getZone(zoneDomain)
-  if (!zone) {
-    throw new DoomainError('PROVIDER_ZONE_NOT_FOUND', `${provider.name} does not have a DNS zone for ${zoneDomain}.`)
-  }
+function resolveZone(provider: DnsProvider, zoneDomain: string): DoomainEffect<DnsZone> {
+  return Effect.gen(function* () {
+    const zone = yield* provider.getZone(zoneDomain)
+    if (!zone) {
+      return yield* Effect.fail(
+        new DoomainError('PROVIDER_ZONE_NOT_FOUND', `${provider.name} does not have a DNS zone for ${zoneDomain}.`),
+      )
+    }
 
-  return zone
+    return zone
+  })
 }
 
 export function withProviderRecordOptions(provider: string, record: DnsRecordInput): DnsRecordInput {
@@ -316,35 +332,30 @@ export function verificationRecords(raw: unknown, zoneDomain: string): DnsRecord
   })
 }
 
-async function wait(milliseconds: number): Promise<void> {
-  await new Promise((resolve) => {
-    setTimeout(resolve, milliseconds)
-  })
+function wait(milliseconds: number): DoomainEffect<void, never> {
+  return Effect.sleep(milliseconds)
 }
 
-async function isRecordPropagated(record: DnsRecordInput, zoneDomain: string): Promise<boolean> {
+function isRecordPropagated(record: DnsRecordInput, zoneDomain: string): DoomainEffect<boolean, never> {
   const fqdn = recordFqdn(record, zoneDomain)
-
-  try {
+  return Effect.gen(function* () {
     if (record.type === 'A') {
-      const values = await resolve4(fqdn)
+      const values = yield* Effect.tryPromise(() => resolve4(fqdn))
       return values.includes(record.value)
     }
 
     if (record.type === 'CNAME') {
-      const values = await resolveCname(fqdn)
+      const values = yield* Effect.tryPromise(() => resolveCname(fqdn))
       return values.map(cleanDnsValue).includes(cleanDnsValue(record.value))
     }
 
     if (record.type === 'TXT') {
-      const values = (await resolveTxt(fqdn)).map((chunks) => chunks.join(''))
+      const values = (yield* Effect.tryPromise(() => resolveTxt(fqdn))).map((chunks) => chunks.join(''))
       return values.includes(record.value)
     }
-  } catch {
-    return false
-  }
 
-  return false
+    return false
+  }).pipe(Effect.catchAll(() => Effect.succeed(false)))
 }
 
 function errorMessage(error: unknown): string {
@@ -352,12 +363,16 @@ function errorMessage(error: unknown): string {
   return String(error)
 }
 
-async function areRecordsPropagated(records: DnsRecordInput[], zoneDomain: string): Promise<boolean> {
-  const results = await Promise.all(records.map((record) => isRecordPropagated(record, zoneDomain)))
-  return results.every(Boolean)
+function areRecordsPropagated(records: DnsRecordInput[], zoneDomain: string): DoomainEffect<boolean, never> {
+  return Effect.all(
+    records.map((record) => isRecordPropagated(record, zoneDomain)),
+    {
+      concurrency: 'unbounded',
+    },
+  ).pipe(Effect.map((results) => results.every(Boolean)))
 }
 
-async function waitForVercelDomainReady(opts: {
+function waitForVercelDomainReady(opts: {
   domain: string
   force?: boolean
   input: LinkDomainInput
@@ -367,91 +382,103 @@ async function waitForVercelDomainReady(opts: {
   records: DnsRecordInput[]
   zone: DnsZone
   zoneDomain: string
-}): Promise<{ propagated: boolean; verified: boolean }> {
-  const vercel = createVercelClient(await resolveVercelConfig())
-  const timeoutSeconds = opts.input.timeoutSeconds ?? 300
-  const startedAt = Date.now()
-  const deadline = Date.now() + timeoutSeconds * 1000
-  let lastError: unknown
-  let lastConfig: Record<string, unknown> | undefined
-  let propagated = false
-  let attempt = 1
-  let records = opts.records
+}): DoomainEffect<{ propagated: boolean; verified: boolean }> {
+  return Effect.gen(function* () {
+    const vercel = createVercelClient(yield* resolveVercelConfig())
+    const timeoutSeconds = opts.input.timeoutSeconds ?? 300
+    const startedAt = Date.now()
+    const deadline = Date.now() + timeoutSeconds * 1000
+    let lastError: unknown
+    let lastConfig: Record<string, unknown> | undefined
+    let propagated = false
+    let attempt = 1
+    let records = opts.records
 
-  async function applyVerificationRecords(raw: unknown): Promise<void> {
-    const nextRecords = planVerificationRecords(opts.providerId, raw, opts.zoneDomain)
-    const merged = mergeRecords(records, nextRecords)
-    if (merged.added.length === 0) return
+    function applyVerificationRecords(raw: unknown): DoomainEffect<void> {
+      return Effect.gen(function* () {
+        const nextRecords = planVerificationRecords(opts.providerId, raw, opts.zoneDomain)
+        const merged = mergeRecords(records, nextRecords)
+        if (merged.added.length === 0) return
 
-    reportProgress(
-      opts.input,
-      'dns:plan',
-      `Found ${merged.added.length} new Vercel ownership record${merged.added.length === 1 ? '' : 's'}`,
-    )
-    const dnsPlan = await opts.provider.planChanges(opts.zone, merged.added, { force: opts.force })
-    reportProgress(opts.input, 'dns:apply', `Updating ownership records in ${opts.provider.name}`)
-    await opts.provider.applyChanges(opts.zone, dnsPlan, { force: opts.force })
-    records = merged.records
-  }
-
-  async function isVercelReady(raw: Record<string, unknown>): Promise<boolean> {
-    await applyVerificationRecords(raw)
-    if (raw.verified !== true) return false
-
-    lastConfig = await vercel.getDomainConfig(opts.domain)
-    return isDomainConfigReady(lastConfig)
-  }
-
-  while (Date.now() <= deadline) {
-    const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000)
-    reportProgress(
-      opts.input,
-      'vercel:verify',
-      `Verifying domain in Vercel (attempt ${attempt}, ${elapsedSeconds}s elapsed)`,
-    )
-
-    try {
-      const current = await vercel.getProjectDomain(opts.project, opts.domain)
-      if (await isVercelReady(current)) return { propagated: true, verified: true }
-
-      const result = await vercel.verifyProjectDomain(opts.project, opts.domain)
-      if (await isVercelReady(result)) return { propagated: true, verified: true }
-    } catch (error) {
-      // Vercel returns an error while DNS is still propagating.
-      lastError = error
-      await applyVerificationRecords(errorDetails(error))
+        reportProgress(
+          opts.input,
+          'dns:plan',
+          `Found ${merged.added.length} new Vercel ownership record${merged.added.length === 1 ? '' : 's'}`,
+        )
+        const dnsPlan = yield* opts.provider.planChanges(opts.zone, merged.added, { force: opts.force })
+        reportProgress(opts.input, 'dns:apply', `Updating ownership records in ${opts.provider.name}`)
+        yield* opts.provider.applyChanges(opts.zone, dnsPlan, { force: opts.force })
+        records = merged.records
+      })
     }
 
-    propagated = await areRecordsPropagated(records, opts.zoneDomain)
-    reportProgress(
-      opts.input,
-      'dns:wait',
-      propagated
-        ? 'DNS is visible publicly; Vercel verification is still pending'
-        : 'DNS records were saved; public DNS is still catching up',
-    )
-    attempt += 1
-    if (Date.now() > deadline) break
-    await wait(5000)
-  }
+    function isVercelReady(raw: Record<string, unknown>): DoomainEffect<boolean> {
+      return Effect.gen(function* () {
+        yield* applyVerificationRecords(raw)
+        if (raw.verified !== true) return false
 
-  if (lastError) {
-    throw new DoomainError(
-      'DOMAIN_VERIFY_FAILED',
-      `Vercel did not verify ${opts.domain} within ${timeoutSeconds} seconds. Last Vercel response: ${errorMessage(lastError)}`,
-      { domainConfig: lastConfig, error: errorDetails(lastError) },
-    )
-  }
+        lastConfig = yield* vercel.getDomainConfig(opts.domain)
+        return isDomainConfigReady(lastConfig)
+      })
+    }
 
-  if (lastConfig?.misconfigured === true) {
-    throw new DoomainError(
-      'DOMAIN_VERIFY_FAILED',
-      `Vercel verified ${opts.domain}, but its DNS configuration is still invalid after ${timeoutSeconds} seconds.`,
-      { domainConfig: lastConfig },
-    )
-  }
+    while (Date.now() <= deadline) {
+      const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000)
+      reportProgress(
+        opts.input,
+        'vercel:verify',
+        `Verifying domain in Vercel (attempt ${attempt}, ${elapsedSeconds}s elapsed)`,
+      )
 
-  return { propagated, verified: false }
+      const verification = yield* Effect.gen(function* () {
+        const current = yield* vercel.getProjectDomain(opts.project, opts.domain)
+        if (yield* isVercelReady(current)) return true
+
+        const result = yield* vercel.verifyProjectDomain(opts.project, opts.domain)
+        return yield* isVercelReady(result)
+      }).pipe(Effect.either)
+      if (verification._tag === 'Right' && verification.right) return { propagated: true, verified: true }
+      if (verification._tag === 'Left') {
+        // Vercel returns an error while DNS is still propagating.
+        lastError = verification.left
+        yield* applyVerificationRecords(errorDetails(verification.left))
+      }
+
+      propagated = yield* areRecordsPropagated(records, opts.zoneDomain)
+      reportProgress(
+        opts.input,
+        'dns:wait',
+        propagated
+          ? 'DNS is visible publicly; Vercel verification is still pending'
+          : 'DNS records were saved; public DNS is still catching up',
+      )
+      attempt += 1
+      if (Date.now() > deadline) break
+      yield* wait(5000)
+    }
+
+    if (lastError) {
+      return yield* Effect.fail(
+        new DoomainError(
+          'DOMAIN_VERIFY_FAILED',
+          `Vercel did not verify ${opts.domain} within ${timeoutSeconds} seconds. Last Vercel response: ${errorMessage(lastError)}`,
+          { domainConfig: lastConfig, error: errorDetails(lastError) },
+        ),
+      )
+    }
+
+    if (lastConfig?.misconfigured === true) {
+      return yield* Effect.fail(
+        new DoomainError(
+          'DOMAIN_VERIFY_FAILED',
+          `Vercel verified ${opts.domain}, but its DNS configuration is still invalid after ${timeoutSeconds} seconds.`,
+          { domainConfig: lastConfig },
+        ),
+      )
+    }
+
+    return { propagated, verified: false }
+  })
 }
 
 function reportProgress(input: LinkDomainInput, stage: LinkDomainProgressStage, message: string): void {
@@ -478,127 +505,138 @@ function dnsTargetConflictError(warning: DnsOverrideWarning): DoomainError {
   )
 }
 
-async function resolveDnsForce(
+function resolveDnsForce(
   input: LinkDomainInput,
   opts: { baseRecord: DnsRecordInput; plan: LinkDomainPlan; provider: DnsProvider; zone: DnsZone },
-): Promise<boolean> {
-  reportProgress(input, 'dns:inspect', `Checking existing DNS records in ${opts.provider.name}`)
-  const dnsPlan = await opts.provider.planChanges(opts.zone, [opts.baseRecord], { force: input.force })
+): DoomainEffect<boolean> {
+  return Effect.gen(function* () {
+    reportProgress(input, 'dns:inspect', `Checking existing DNS records in ${opts.provider.name}`)
+    const dnsPlan = yield* opts.provider.planChanges(opts.zone, [opts.baseRecord], { force: input.force })
 
-  if (input.force || dnsPlan.conflicts.length === 0) return Boolean(input.force)
+    if (input.force || dnsPlan.conflicts.length === 0) return Boolean(input.force)
 
-  const warning: DnsOverrideWarning = {
-    account: opts.plan.account,
-    conflicts: dnsPlan.conflicts,
-    desired: [opts.baseRecord],
-    domain: opts.plan.domain,
-    provider: opts.plan.provider,
-    providerName: opts.provider.name,
-    recordName: opts.plan.recordName,
-    zoneDomain: opts.plan.zoneDomain,
-  }
+    const warning: DnsOverrideWarning = {
+      account: opts.plan.account,
+      conflicts: dnsPlan.conflicts,
+      desired: [opts.baseRecord],
+      domain: opts.plan.domain,
+      provider: opts.plan.provider,
+      providerName: opts.provider.name,
+      recordName: opts.plan.recordName,
+      zoneDomain: opts.plan.zoneDomain,
+    }
 
-  reportProgress(input, 'dns:override-confirm', `Existing DNS records point ${opts.plan.domain} somewhere else`)
-  const confirmed = await input.confirmDnsOverride?.(warning)
-  if (!confirmed) throw dnsTargetConflictError(warning)
+    reportProgress(input, 'dns:override-confirm', `Existing DNS records point ${opts.plan.domain} somewhere else`)
+    const confirmed = input.confirmDnsOverride
+      ? yield* tryPromise(() => input.confirmDnsOverride?.(warning) ?? Promise.resolve(false), 'DOMAIN_LINK_FAILED')
+      : false
+    if (!confirmed) return yield* Effect.fail(dnsTargetConflictError(warning))
 
-  return true
+    return true
+  })
 }
 
-export async function createLinkPlan(input: LinkDomainInput): Promise<LinkDomainPlan> {
-  const domain = await resolveConfiguredDomain(input.domain)
-  const project = await resolveProject(input.project)
-  const resolved = await resolveProviderTarget({ ...input, domain })
-  const { account, accountInferred, isDefaultAccount, provider, providerInferred, target } = resolved
-  const record = planBaseRecord({ isApex: target.isApex, provider, recordName: target.recordName })
+export function createLinkPlan(input: LinkDomainInput): DoomainEffect<LinkDomainPlan> {
+  return Effect.gen(function* () {
+    const domain = yield* resolveConfiguredDomain(input.domain)
+    const project = yield* resolveProject(input.project)
+    const resolved = yield* resolveProviderTarget({ ...input, domain }, { transportErrorCode: 'DOMAIN_LINK_FAILED' })
+    const { account, accountInferred, isDefaultAccount, provider, providerInferred, target } = resolved
+    const record = planBaseRecord({ isApex: target.isApex, provider, recordName: target.recordName })
 
-  return {
-    account,
-    accountInferred,
-    isDefaultAccount,
-    provider,
-    providerInferred,
-    project: project.project,
-    projectSource: project.projectSource,
-    recordName: target.recordName,
-    zoneDomain: target.zoneDomain,
-    domain: target.fullDomain,
-    isApex: target.isApex,
-    records: [record],
-    localProjectDetected: project.localProjectDetected,
-    actions: ['vercel:addProjectDomain', 'dns:upsertRecord', 'dns:waitPropagation', 'vercel:verifyProjectDomain'],
-  }
+    return {
+      account,
+      accountInferred,
+      isDefaultAccount,
+      provider,
+      providerInferred,
+      project: project.project,
+      projectSource: project.projectSource,
+      recordName: target.recordName,
+      zoneDomain: target.zoneDomain,
+      domain: target.fullDomain,
+      isApex: target.isApex,
+      records: [record],
+      localProjectDetected: project.localProjectDetected,
+      actions: ['vercel:addProjectDomain', 'dns:upsertRecord', 'dns:waitPropagation', 'vercel:verifyProjectDomain'],
+    }
+  })
 }
 
-export async function linkDomain(input: LinkDomainInput): Promise<LinkDomainResult> {
-  const plan = await createLinkPlan(input)
+export function linkDomain(input: LinkDomainInput): DoomainEffect<LinkDomainResult> {
+  return Effect.gen(function* () {
+    const plan = yield* createLinkPlan(input)
 
-  if (input.dryRun) {
+    if (input.dryRun) {
+      return {
+        ...plan,
+        dryRun: true,
+        dns: { updated: false, propagated: false, skipped: [] },
+        vercel: { added: false, alreadyAdded: false, verified: false },
+      }
+    }
+
+    const vercel = createVercelClient(yield* resolveVercelConfig())
+    const provider = yield* createProvider(plan.provider, {
+      account: plan.account,
+      transportErrorCode: 'DOMAIN_LINK_FAILED',
+    })
+    reportProgress(input, 'dns:resolve-zone', `Finding ${provider.name} DNS zone`)
+    const zone = yield* resolveZone(provider, plan.zoneDomain)
+    reportProgress(input, 'vercel:get-target', 'Reading Vercel DNS target')
+    const cname = plan.isApex ? undefined : yield* vercel.getRecommendedCname(plan.domain)
+    const baseRecord = planBaseRecord({
+      isApex: plan.isApex,
+      provider: plan.provider,
+      recordName: plan.recordName,
+      cname,
+    })
+    const forceDns = yield* resolveDnsForce(input, { baseRecord, plan, provider, zone })
+    reportProgress(input, 'vercel:add-domain', 'Adding domain to Vercel')
+    const addResult = yield* vercel.addDomainToProject(plan.project, plan.domain, { force: input.force })
+    reportProgress(input, 'vercel:get-domain', 'Reading Vercel verification records')
+    const projectDomain = yield* vercel.getProjectDomain(plan.project, plan.domain)
+    const verificationDnsRecords = uniqueRecords([
+      ...planVerificationRecords(plan.provider, addResult.raw, plan.zoneDomain),
+      ...planVerificationRecords(plan.provider, projectDomain, plan.zoneDomain),
+    ])
+    const records = [baseRecord, ...verificationDnsRecords]
+    reportProgress(input, 'dns:plan', `Reading ${provider.name} DNS records`)
+    const dnsPlan = yield* provider.planChanges(zone, records, { force: forceDns })
+    reportProgress(input, 'dns:apply', `Updating DNS records in ${provider.name}`)
+    const dnsResult = yield* provider.applyChanges(zone, dnsPlan, { force: forceDns })
+
+    const shouldWait = input.wait ?? true
+    if (shouldWait) {
+      reportProgress(
+        input,
+        'dns:wait',
+        verificationDnsRecords.length > 0
+          ? 'DNS records saved; asking Vercel to verify ownership'
+          : 'DNS records saved; asking Vercel to verify',
+      )
+    }
+
+    const waitResult = shouldWait
+      ? yield* waitForVercelDomainReady({
+          domain: plan.domain,
+          force: forceDns,
+          input,
+          project: plan.project,
+          provider,
+          providerId: plan.provider,
+          records,
+          zone,
+          zoneDomain: plan.zoneDomain,
+        })
+      : { propagated: false, verified: false }
+
     return {
       ...plan,
-      dryRun: true,
-      dns: { updated: false, propagated: false, skipped: [] },
-      vercel: { added: false, alreadyAdded: false, verified: false },
+      records,
+      dryRun: false,
+      dns: { updated: dnsResult.applied.length > 0, propagated: waitResult.propagated, skipped: dnsResult.skipped },
+      vercel: { added: !addResult.alreadyAdded, alreadyAdded: addResult.alreadyAdded, verified: waitResult.verified },
     }
-  }
-
-  const vercel = createVercelClient(await resolveVercelConfig())
-  const provider = await createProvider(plan.provider, { account: plan.account })
-  reportProgress(input, 'dns:resolve-zone', `Finding ${provider.name} DNS zone`)
-  const zone = await resolveZone(provider, plan.zoneDomain)
-  reportProgress(input, 'vercel:get-target', 'Reading Vercel DNS target')
-  const cname = plan.isApex ? undefined : await vercel.getRecommendedCname(plan.domain)
-  const baseRecord = planBaseRecord({
-    isApex: plan.isApex,
-    provider: plan.provider,
-    recordName: plan.recordName,
-    cname,
   })
-  const forceDns = await resolveDnsForce(input, { baseRecord, plan, provider, zone })
-  reportProgress(input, 'vercel:add-domain', 'Adding domain to Vercel')
-  const addResult = await vercel.addDomainToProject(plan.project, plan.domain, { force: input.force })
-  reportProgress(input, 'vercel:get-domain', 'Reading Vercel verification records')
-  const projectDomain = await vercel.getProjectDomain(plan.project, plan.domain)
-  const verificationDnsRecords = uniqueRecords([
-    ...planVerificationRecords(plan.provider, addResult.raw, plan.zoneDomain),
-    ...planVerificationRecords(plan.provider, projectDomain, plan.zoneDomain),
-  ])
-  const records = [baseRecord, ...verificationDnsRecords]
-  reportProgress(input, 'dns:plan', `Reading ${provider.name} DNS records`)
-  const dnsPlan = await provider.planChanges(zone, records, { force: forceDns })
-  reportProgress(input, 'dns:apply', `Updating DNS records in ${provider.name}`)
-  const dnsResult = await provider.applyChanges(zone, dnsPlan, { force: forceDns })
-
-  const shouldWait = input.wait ?? true
-  if (shouldWait) {
-    reportProgress(
-      input,
-      'dns:wait',
-      verificationDnsRecords.length > 0
-        ? 'DNS records saved; asking Vercel to verify ownership'
-        : 'DNS records saved; asking Vercel to verify',
-    )
-  }
-
-  const waitResult = shouldWait
-    ? await waitForVercelDomainReady({
-        domain: plan.domain,
-        force: forceDns,
-        input,
-        project: plan.project,
-        provider,
-        providerId: plan.provider,
-        records,
-        zone,
-        zoneDomain: plan.zoneDomain,
-      })
-    : { propagated: false, verified: false }
-
-  return {
-    ...plan,
-    records,
-    dryRun: false,
-    dns: { updated: dnsResult.applied.length > 0, propagated: waitResult.propagated, skipped: dnsResult.skipped },
-    vercel: { added: !addResult.alreadyAdded, alreadyAdded: addResult.alreadyAdded, verified: waitResult.verified },
-  }
 }

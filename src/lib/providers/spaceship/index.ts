@@ -1,3 +1,6 @@
+import { Effect } from 'effect'
+
+import { type DoomainEffect, trySync } from '../../effect.js'
 import { normalizeDomain } from '../../validate.js'
 import { createProviderHttpClient, type ProviderHttpClient } from '../core/http.js'
 import { paginateBySkip } from '../core/pagination.js'
@@ -97,92 +100,94 @@ export class SpaceshipProvider implements DnsProvider {
       },
       providerId: this.id,
       signal: context.signal,
+      transportErrorCode: context.transportErrorCode,
     })
   }
 
-  async verifyCredentials(): Promise<ProviderHealth> {
-    await this.listZones()
-    return { ok: true }
+  verifyCredentials(): DoomainEffect<ProviderHealth> {
+    return this.listZones().pipe(Effect.as({ ok: true }))
   }
 
-  async listZones(): Promise<DnsZone[]> {
-    const domains = await paginateBySkip<SpaceshipDomain>({
+  listZones(): DoomainEffect<DnsZone[]> {
+    return paginateBySkip<SpaceshipDomain>({
       take: 100,
       fetchPage: ({ skip, take }) =>
         this.http.request<{ items: SpaceshipDomain[]; total: number }>('/domains', {
           query: { orderBy: 'name', skip, take },
         }),
-    })
+    }).pipe(
+      Effect.map((domains) =>
+        domains.flatMap((domain) => {
+          const zone = toZone(domain)
+          return zone ? [zone] : []
+        }),
+      ),
+    )
+  }
 
-    return domains.flatMap((domain) => {
-      const zone = toZone(domain)
-      return zone ? [zone] : []
+  getZone(domain: string): DoomainEffect<DnsZone | null> {
+    return Effect.gen(this, function* () {
+      const normalized = yield* trySync(() => normalizeDomain(domain), 'INVALID_INPUT')
+      const zones = yield* this.listZones()
+      return zones.find((zone) => zone.name === normalized) ?? null
     })
   }
 
-  async getZone(domain: string): Promise<DnsZone | null> {
-    const normalized = normalizeDomain(domain)
-    const zones = await this.listZones()
-    return zones.find((zone) => zone.name === normalized) ?? null
-  }
-
-  async listRecords(zone: DnsZone): Promise<DnsRecord[]> {
-    const records = await paginateBySkip<SpaceshipRecord>({
+  listRecords(zone: DnsZone): DoomainEffect<DnsRecord[]> {
+    return paginateBySkip<SpaceshipRecord>({
       take: 500,
       fetchPage: ({ skip, take }) =>
         this.http.request<{ items: SpaceshipRecord[]; total: number }>(`/dns/records/${zone.name}`, {
           query: { skip, take },
         }),
-    })
-
-    return records.map(toDnsRecord)
+    }).pipe(Effect.map((records) => records.map(toDnsRecord)))
   }
 
-  async planChanges(zone: DnsZone, desired: DnsRecordInput[], opts: { force?: boolean } = {}): Promise<DnsChangePlan> {
-    return planDnsChanges({
-      desired,
-      existing: await this.listRecords(zone),
-      force: opts.force,
-      providerId: this.id,
-      zone,
-    })
+  planChanges(zone: DnsZone, desired: DnsRecordInput[], opts: { force?: boolean } = {}): DoomainEffect<DnsChangePlan> {
+    return this.listRecords(zone).pipe(
+      Effect.map((existing) => planDnsChanges({ desired, existing, force: opts.force, providerId: this.id, zone })),
+    )
   }
 
-  async applyChanges(
+  applyChanges(
     zone: DnsZone,
     plan: DnsChangePlan,
-  ): Promise<{ applied: DnsChangePlan['changes']; skipped: DnsRecordInput[] }> {
-    assertNoConflicts(this.id, plan)
-    const skipped = plan.changes.flatMap((change) => (change.action === 'skip' ? [change.record] : []))
-    const applied = plan.changes.filter((change) => change.action !== 'skip')
+  ): DoomainEffect<{ applied: DnsChangePlan['changes']; skipped: DnsRecordInput[] }> {
+    return Effect.gen(this, function* () {
+      yield* assertNoConflicts(this.id, plan)
+      const skipped = plan.changes.flatMap((change) => (change.action === 'skip' ? [change.record] : []))
+      const applied = plan.changes.filter((change) => change.action !== 'skip')
 
-    // Spaceship records do not have stable ids. Delete every old value before creating
-    // replacements so an API that processes accepted writes out of order cannot leave
-    // two address records in the same slot without the reconciler noticing and retrying.
-    for (const change of applied) {
-      if (change.action === 'delete' || change.action === 'update') await this.deleteRecord(zone, change.existing)
-    }
-    for (const change of applied) {
-      if (change.action === 'create' || change.action === 'update') await this.upsertRecord(zone, change.record)
-    }
+      // Spaceship records do not have stable ids. Delete every old value before creating
+      // replacements so an API that processes accepted writes out of order cannot leave
+      // two address records in the same slot without the reconciler noticing and retrying.
+      for (const change of applied) {
+        if (change.action === 'delete' || change.action === 'update') yield* this.deleteRecord(zone, change.existing)
+      }
+      for (const change of applied) {
+        if (change.action === 'create' || change.action === 'update') yield* this.upsertRecord(zone, change.record)
+      }
 
-    return { applied, skipped }
+      return { applied, skipped }
+    })
   }
 
-  async upsertRecord(zone: DnsZone, record: DnsRecordInput): Promise<DnsRecord> {
-    await this.http.request(`/dns/records/${zone.name}`, {
-      body: { force: true, items: [toSpaceshipItem(record)] },
-      method: 'PUT',
-    })
-
-    return { ...record, ttl: record.ttl ?? capabilities.defaultTtl }
+  upsertRecord(zone: DnsZone, record: DnsRecordInput): DoomainEffect<DnsRecord> {
+    return this.http
+      .request(`/dns/records/${zone.name}`, {
+        body: { force: true, items: [toSpaceshipItem(record)] },
+        method: 'PUT',
+      })
+      .pipe(Effect.as({ ...record, ttl: record.ttl ?? capabilities.defaultTtl }))
   }
 
-  async deleteRecord(zone: DnsZone, record: DnsRecord): Promise<void> {
-    await this.http.request(`/dns/records/${zone.name}`, {
-      body: [toSpaceshipItem(record)],
-      method: 'DELETE',
-    })
+  deleteRecord(zone: DnsZone, record: DnsRecord): DoomainEffect<void> {
+    return this.http
+      .request(`/dns/records/${zone.name}`, {
+        body: [toSpaceshipItem(record)],
+        method: 'DELETE',
+      })
+      .pipe(Effect.asVoid)
   }
 }
 

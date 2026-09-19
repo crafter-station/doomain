@@ -4,10 +4,21 @@ import { join } from 'node:path'
 
 import { runCommand } from '@oclif/test'
 import { expect } from 'chai'
-import { saveConfig } from '../../src/lib/config.js'
+import { saveConfig as saveConfigEffect } from '../../src/lib/config.js'
 import { DoomainError } from '../../src/lib/errors.js'
-import { linkDomain, verificationRecords } from '../../src/lib/link-domain.js'
-import { createVercelClient } from '../../src/lib/vercel.js'
+import { linkDomain as linkDomainEffect, verificationRecords } from '../../src/lib/link-domain.js'
+import { createVercelClient as createVercelEffectClient } from '../../src/lib/vercel.js'
+import { runEffect } from '../helpers/effect.js'
+
+const saveConfig = (...args: Parameters<typeof saveConfigEffect>) => runEffect(saveConfigEffect(...args))
+const linkDomain = (...args: Parameters<typeof linkDomainEffect>) => runEffect(linkDomainEffect(...args))
+const createVercelClient = (...args: Parameters<typeof createVercelEffectClient>) => {
+  const client = createVercelEffectClient(...args)
+  return {
+    addDomainToProject: (...methodArgs: Parameters<typeof client.addDomainToProject>) =>
+      runEffect(client.addDomainToProject(...methodArgs)),
+  }
+}
 
 function jsonResponse(body: unknown): Response {
   return { json: async () => body, ok: true, status: 200 } as Response

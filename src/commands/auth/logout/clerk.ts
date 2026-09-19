@@ -1,6 +1,7 @@
 import { Command } from '@oclif/core'
 
 import { getConfigPath, updateConfig } from '../../../lib/config.js'
+import { runDoomainEffect } from '../../../lib/effect.js'
 import { jsonFlag } from '../../../lib/flags.js'
 import { createOutput, outputError } from '../../../lib/output.js'
 
@@ -15,11 +16,13 @@ export default class AuthLogoutClerk extends Command {
 
     try {
       let removed = false
-      await updateConfig((config) => {
-        removed = config.clerk !== undefined
-        const { clerk: _clerk, ...next } = config
-        return next
-      })
+      await runDoomainEffect(
+        updateConfig((config) => {
+          removed = config.clerk !== undefined
+          const { clerk: _clerk, ...next } = config
+          return next
+        }, 'MISSING_CREDENTIALS'),
+      )
 
       const environmentOverrides = ['CLERK_PLATFORM_API_KEY', 'CLERK_APPLICATION_ID'].filter((key) => process.env[key])
       out.result({ configPath: getConfigPath(), environmentOverrides, removed, service: 'clerk' })

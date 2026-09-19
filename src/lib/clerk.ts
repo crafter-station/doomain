@@ -1,5 +1,8 @@
+import { Effect } from 'effect'
+
 import { loadConfig } from './config.js'
-import { DoomainError } from './errors.js'
+import type { DoomainEffect } from './effect.js'
+import { DoomainError, type DoomainErrorCode, toDoomainError } from './errors.js'
 
 const CLERK_API_URL = 'https://api.clerk.com'
 
@@ -53,30 +56,36 @@ interface ClerkApiErrorBody {
   message?: string
 }
 
-export async function resolveClerkPlatformConfig(appId?: string): Promise<ClerkPlatformConfig> {
-  const config = await loadConfig()
-  const platformApiKey = process.env.CLERK_PLATFORM_API_KEY || config.clerk?.platformApiKey
-  const resolvedAppId = appId || process.env.CLERK_APPLICATION_ID || config.clerk?.appId
+export function resolveClerkPlatformConfig(appId?: string): DoomainEffect<ClerkPlatformConfig> {
+  return Effect.gen(function* () {
+    const config = yield* loadConfig()
+    const platformApiKey = process.env.CLERK_PLATFORM_API_KEY || config.clerk?.platformApiKey
+    const resolvedAppId = appId || process.env.CLERK_APPLICATION_ID || config.clerk?.appId
 
-  if (!platformApiKey) {
-    throw new DoomainError(
-      'MISSING_CREDENTIALS',
-      'Missing Clerk Platform API key. Run `doomain auth clerk`, set CLERK_PLATFORM_API_KEY, or pass saved credentials.',
-    )
-  }
+    if (!platformApiKey) {
+      return yield* Effect.fail(
+        new DoomainError(
+          'MISSING_CREDENTIALS',
+          'Missing Clerk Platform API key. Run `doomain auth clerk`, set CLERK_PLATFORM_API_KEY, or pass saved credentials.',
+        ),
+      )
+    }
 
-  if (!platformApiKey.startsWith('ak_')) {
-    throw new DoomainError('INVALID_INPUT', 'Clerk Platform API keys must start with ak_.')
-  }
+    if (!platformApiKey.startsWith('ak_')) {
+      return yield* Effect.fail(new DoomainError('INVALID_INPUT', 'Clerk Platform API keys must start with ak_.'))
+    }
 
-  if (!resolvedAppId) {
-    throw new DoomainError(
-      'MISSING_ARGUMENT',
-      'Clerk application is required. Pass --app, set CLERK_APPLICATION_ID, or save it with `doomain auth clerk`.',
-    )
-  }
+    if (!resolvedAppId) {
+      return yield* Effect.fail(
+        new DoomainError(
+          'MISSING_ARGUMENT',
+          'Clerk application is required. Pass --app, set CLERK_APPLICATION_ID, or save it with `doomain auth clerk`.',
+        ),
+      )
+    }
 
-  return { appId: resolvedAppId, platformApiKey }
+    return { appId: resolvedAppId, platformApiKey }
+  })
 }
 
 function apiErrorMessage(status: number, body?: ClerkApiErrorBody): string {
@@ -93,44 +102,63 @@ function apiErrorCode(body?: ClerkApiErrorBody): string | undefined {
   return body?.errors?.[0]?.code ?? body?.error?.code ?? body?.code
 }
 
-export function createClerkPlatformClient(config: { platformApiKey: string }) {
-  async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const response = await fetch(`${CLERK_API_URL}${path}`, {
-      ...init,
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${config.platformApiKey}`,
-        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-        ...(init.headers ?? {}),
-      },
+export function createClerkPlatformClient(
+  config: { platformApiKey: string },
+  opts: { transportErrorCode?: DoomainErrorCode } = {},
+) {
+  function request<T>(path: string, init: RequestInit = {}): DoomainEffect<T> {
+    return Effect.gen(function* () {
+      const response = yield* Effect.tryPromise({
+        try: (signal) =>
+          fetch(`${CLERK_API_URL}${path}`, {
+            ...init,
+            headers: {
+              Accept: 'application/json',
+              Authorization: `Bearer ${config.platformApiKey}`,
+              ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+              ...(init.headers ?? {}),
+            },
+            signal: init.signal ?? signal,
+          }),
+        catch: (cause) => toDoomainError(cause, opts.transportErrorCode ?? 'DOMAIN_LINK_FAILED'),
+      })
+      if (!response.ok) {
+        const body = yield* Effect.tryPromise(() => response.json()).pipe(
+          Effect.catchAll(() => Effect.succeed(undefined)),
+        )
+        if (response.status === 401 || response.status === 403) {
+          return yield* Effect.fail(
+            new DoomainError(
+              'CLERK_AUTH_FAILED',
+              `Clerk Platform API authorization failed. Check CLERK_PLATFORM_API_KEY and its application access. ${apiErrorMessage(response.status, body as ClerkApiErrorBody)}`,
+              body,
+            ),
+          )
+        }
+
+        if (response.status === 409 && apiErrorCode(body as ClerkApiErrorBody) === 'production_instance_exists') {
+          return yield* Effect.fail(
+            new DoomainError(
+              'CLERK_PRODUCTION_EXISTS',
+              'This Clerk application already has a production instance. Configure domain changes manually in Clerk; Doomain will not modify it.',
+              body,
+            ),
+          )
+        }
+
+        return yield* Effect.fail(
+          new DoomainError('DOMAIN_LINK_FAILED', apiErrorMessage(response.status, body as ClerkApiErrorBody), body),
+        )
+      }
+
+      return (yield* Effect.tryPromise(() => response.json()).pipe(
+        Effect.mapError((cause) => toDoomainError(cause, opts.transportErrorCode ?? 'DOMAIN_LINK_FAILED')),
+      )) as T
     })
-
-    if (!response.ok) {
-      const body = (await response.json().catch(() => undefined)) as ClerkApiErrorBody | undefined
-      if (response.status === 401 || response.status === 403) {
-        throw new DoomainError(
-          'CLERK_AUTH_FAILED',
-          `Clerk Platform API authorization failed. Check CLERK_PLATFORM_API_KEY and its application access. ${apiErrorMessage(response.status, body)}`,
-          body,
-        )
-      }
-
-      if (response.status === 409 && apiErrorCode(body) === 'production_instance_exists') {
-        throw new DoomainError(
-          'CLERK_PRODUCTION_EXISTS',
-          'This Clerk application already has a production instance. Configure domain changes manually in Clerk; Doomain will not modify it.',
-          body,
-        )
-      }
-
-      throw new DoomainError('DOMAIN_LINK_FAILED', apiErrorMessage(response.status, body), body)
-    }
-
-    return (await response.json()) as T
   }
 
   return {
-    fetchApplication(appId: string): Promise<ClerkApplication> {
+    fetchApplication(appId: string): DoomainEffect<ClerkApplication> {
       return request(`/v1/platform/applications/${encodeURIComponent(appId)}`)
     },
 
@@ -138,20 +166,20 @@ export function createClerkPlatformClient(config: { platformApiKey: string }) {
       appId: string,
       domain: string,
       developmentInstanceId: string,
-    ): Promise<ClerkProductionInstance> {
+    ): DoomainEffect<ClerkProductionInstance> {
       return request(`/v1/platform/applications/${encodeURIComponent(appId)}/instances`, {
         body: JSON.stringify({ clone_instance_id: developmentInstanceId, domain, environment_type: 'production' }),
         method: 'POST',
       })
     },
 
-    getDomainStatus(appId: string, domainId: string): Promise<ClerkDomainStatus> {
+    getDomainStatus(appId: string, domainId: string): DoomainEffect<ClerkDomainStatus> {
       return request(
         `/v1/platform/applications/${encodeURIComponent(appId)}/domains/${encodeURIComponent(domainId)}/status`,
       )
     },
 
-    triggerDomainDnsCheck(appId: string, domainId: string): Promise<ClerkDomainStatus> {
+    triggerDomainDnsCheck(appId: string, domainId: string): DoomainEffect<ClerkDomainStatus> {
       return request(
         `/v1/platform/applications/${encodeURIComponent(appId)}/domains/${encodeURIComponent(domainId)}/dns_check`,
         { method: 'POST' },

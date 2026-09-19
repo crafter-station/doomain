@@ -1,13 +1,54 @@
 import { strict as assert } from 'node:assert'
+import { Effect } from 'effect'
 import { describe, it } from 'mocha'
 
-import { diagnoseDns } from '../../src/lib/diagnose-dns.js'
+import {
+  type DiagnoseDnsInput,
+  diagnoseDns as diagnoseDnsEffect,
+  type MacOsResolverMetadata,
+} from '../../src/lib/diagnose-dns.js'
+import type { DnsResolverObservation } from '../../src/lib/dns-propagation.js'
+import type { ResolvedDnsTarget } from '../../src/lib/domain-provider.js'
 import { DoomainError } from '../../src/lib/errors.js'
-import type { DnsProvider, DnsRecord, DnsZone } from '../../src/lib/providers/types.js'
+import type { DnsRecord, DnsRecordInput, DnsZone } from '../../src/lib/providers/types.js'
+import { effectFromPromise, effectProvider, type PromiseDnsProvider, runEffect } from '../helpers/effect.js'
+
+interface TestDependencies {
+  createProvider: (provider: string, opts: { account?: string }) => Promise<PromiseDnsProvider>
+  macOsResolvers?: () => Promise<MacOsResolverMetadata[]>
+  observeDns: (
+    fqdn: string,
+    target: Pick<DnsRecordInput, 'type' | 'value'>,
+    elapsedMs: number,
+  ) => Promise<DnsResolverObservation[]>
+  resolveTarget: (input: Pick<DiagnoseDnsInput, 'account' | 'domain' | 'provider'>) => Promise<ResolvedDnsTarget>
+}
+
+const diagnoseDns = (input: DiagnoseDnsInput, dependencies?: TestDependencies) =>
+  runEffect(
+    diagnoseDnsEffect(
+      input,
+      dependencies
+        ? {
+            createProvider: (provider, opts) =>
+              effectFromPromise(() => dependencies.createProvider(provider, opts)).pipe(Effect.map(effectProvider)),
+            macOsResolvers: dependencies.macOsResolvers
+              ? () =>
+                  effectFromPromise(() => dependencies.macOsResolvers?.() ?? Promise.resolve([])).pipe(
+                    Effect.catchAll(() => Effect.succeed([])),
+                  )
+              : undefined,
+            observeDns: (fqdn, target, elapsedMs) =>
+              effectFromPromise(() => dependencies.observeDns(fqdn, target, elapsedMs)),
+            resolveTarget: (targetInput) => effectFromPromise(() => dependencies.resolveTarget(targetInput)),
+          }
+        : undefined,
+    ),
+  )
 
 const zone: DnsZone = { id: 'zone-1', name: 'example.com' }
 
-function providerWith(records: DnsRecord[]): DnsProvider {
+function providerWith(records: DnsRecord[]): PromiseDnsProvider {
   return {
     id: 'test',
     name: 'Test DNS',

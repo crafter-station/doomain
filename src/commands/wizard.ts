@@ -1,7 +1,9 @@
 import * as p from '@clack/prompts'
 import { Command } from '@oclif/core'
+import { Effect } from 'effect'
 
-import { loadConfig, maskSecret, updateConfig } from '../lib/config.js'
+import { type DoomainConfig, loadConfig, maskSecret, updateConfig } from '../lib/config.js'
+import { type DoomainEffect, runDoomainEffect } from '../lib/effect.js'
 import { DoomainError } from '../lib/errors.js'
 import { jsonFlag } from '../lib/flags.js'
 import { createLinkPlan, type DnsOverrideWarning, linkDomain } from '../lib/link-domain.js'
@@ -18,6 +20,7 @@ import {
 } from '../lib/providers/core/config.js'
 import { createProvider, getProviderDefinition, listProviderDefinitions } from '../lib/providers/registry.js'
 import type { CredentialDefinition, DnsProviderDefinition, DnsRecordInput, DnsZone } from '../lib/providers/types.js'
+import { fetchPublicIp } from '../lib/public-ip.js'
 import { createVercelClient, type VercelTeam } from '../lib/vercel.js'
 import { type GlobalVercelToken, listGlobalVercelTokens } from '../lib/vercel-auth.js'
 
@@ -85,29 +88,17 @@ interface ProviderDomainOption {
   providerName: string
 }
 
-async function fetchPublicIp(): Promise<string | undefined> {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 2000)
-
-  try {
-    const response = await fetch('https://api.ipify.org', { signal: controller.signal })
-    if (!response.ok) return undefined
-    const ip = (await response.text()).trim()
-    return ip || undefined
-  } catch {
-    return undefined
-  } finally {
-    clearTimeout(timeout)
-  }
-}
-
-async function credentialInitialValue(credential: CredentialDefinition): Promise<string | undefined> {
+function credentialInitialValue(credential: CredentialDefinition, detectedPublicIp?: string): string | undefined {
   if (credential.key !== 'clientIp') return undefined
-  return fetchPublicIp()
+  return detectedPublicIp
 }
 
-async function promptCredential(credential: CredentialDefinition): Promise<string | null> {
-  const initialValue = credential.secret ? undefined : await credentialInitialValue(credential)
+function usesClientIp(definition: DnsProviderDefinition): boolean {
+  return definition.credentials.some((credential) => credential.key === 'clientIp')
+}
+
+async function promptCredential(credential: CredentialDefinition, detectedPublicIp?: string): Promise<string | null> {
+  const initialValue = credential.secret ? undefined : credentialInitialValue(credential, detectedPublicIp)
   const value = credential.secret
     ? await p.password({ message: credential.label })
     : await p.text({ message: credential.label, initialValue, placeholder: credential.placeholder ?? credential.hint })
@@ -115,12 +106,15 @@ async function promptCredential(credential: CredentialDefinition): Promise<strin
   return typeof resolved === 'string' && resolved.trim() ? resolved.trim() : null
 }
 
-async function promptProviderCredentials(definition: DnsProviderDefinition): Promise<Record<string, string> | null> {
+async function promptProviderCredentials(
+  definition: DnsProviderDefinition,
+  detectedPublicIp?: string,
+): Promise<Record<string, string> | null> {
   const credentials: Record<string, string> = {}
 
   for (const credential of definition.credentials) {
     if (credential.required === false) continue
-    const value = await promptCredential(credential)
+    const value = await promptCredential(credential, detectedPublicIp)
     if (!value) return null
     credentials[credential.key] = value
   }
@@ -130,7 +124,7 @@ async function promptProviderCredentials(definition: DnsProviderDefinition): Pro
 
 async function promptProviderDefinition(
   definitions: DnsProviderDefinition[],
-  config: Awaited<ReturnType<typeof loadConfig>>,
+  config: DoomainConfig,
 ): Promise<DnsProviderDefinition | null> {
   const selected = await p.select({
     message: 'Choose DNS provider',
@@ -150,13 +144,18 @@ function showProviderSetup(definition: DnsProviderDefinition): void {
   p.note(definition.setup.notes.join('\n'), `${definition.displayName} setup`)
 }
 
-async function listProviderDomainOptions(
+function listProviderDomainOptions(
   definition: DnsProviderDefinition,
   account: ProviderAccountRef,
-): Promise<ProviderDomainOption[]> {
-  const provider = await createProvider(definition.id, { account: account.account })
-  const zones = await provider.listZones()
-  return zones.map((zone) => toProviderDomainOption(definition, account, zone))
+): DoomainEffect<ProviderDomainOption[]> {
+  return Effect.gen(function* () {
+    const provider = yield* createProvider(definition.id, {
+      account: account.account,
+      transportErrorCode: 'DOMAIN_LINK_FAILED',
+    })
+    const zones = yield* provider.listZones()
+    return zones.map((zone) => toProviderDomainOption(definition, account, zone))
+  })
 }
 
 function toProviderDomainOption(
@@ -286,7 +285,7 @@ export default class Wizard extends Command {
 
     try {
       p.intro('Doomain')
-      const config = await loadConfig()
+      const config = await runDoomainEffect(loadConfig())
       const providerDefinitions = listProviderDefinitions()
       const localProject = detectLocalVercelProject()
       let vercelToken = config.vercel?.token
@@ -296,7 +295,7 @@ export default class Wizard extends Command {
       let globalVercelTokens: GlobalVercelToken[] = []
 
       if (!vercelToken) {
-        globalVercelTokens = await listGlobalVercelTokens()
+        globalVercelTokens = await runDoomainEffect(listGlobalVercelTokens())
         vercelToken = (await promptVercelToken(globalVercelTokens)) ?? undefined
         if (!vercelToken) return
       }
@@ -311,7 +310,7 @@ export default class Wizard extends Command {
           } else {
             activeSpinner = teamSpinner
             teamSpinner.start('Loading Vercel teams')
-            teams = await createVercelClient({ token: vercelToken }).listTeams()
+            teams = await runDoomainEffect(createVercelClient({ token: vercelToken }).listTeams())
             teamSpinner.stop(`Loaded ${teams.length} Vercel team${teams.length === 1 ? '' : 's'}`)
             activeSpinner = undefined
 
@@ -333,7 +332,7 @@ export default class Wizard extends Command {
           activeSpinner?.error('Vercel authorization failed')
           activeSpinner = undefined
           p.log.warning(error instanceof Error ? error.message : String(error))
-          if (globalVercelTokens.length === 0) globalVercelTokens = await listGlobalVercelTokens()
+          if (globalVercelTokens.length === 0) globalVercelTokens = await runDoomainEffect(listGlobalVercelTokens())
           globalVercelTokens = globalVercelTokens.filter((token) => token.token !== vercelToken)
           vercelToken = (await promptVercelToken(globalVercelTokens)) ?? undefined
           if (!vercelToken) return
@@ -349,7 +348,9 @@ export default class Wizard extends Command {
       const projectSpinner = p.spinner()
       activeSpinner = projectSpinner
       projectSpinner.start('Loading Vercel projects')
-      const projects = await createVercelClient({ token: vercelToken, teamId: vercelTeamId }).listProjects()
+      const projects = await runDoomainEffect(
+        createVercelClient({ token: vercelToken, teamId: vercelTeamId }).listProjects(),
+      )
       projectSpinner.stop(`Loaded ${projects.length} projects`)
       activeSpinner = undefined
 
@@ -404,33 +405,43 @@ export default class Wizard extends Command {
           isDefaultAccount: isDefaultProviderAccount(account),
           providerId: selectedDefinition.id,
         }
-        const credentials = await promptProviderCredentials(selectedDefinition)
+        const detectedPublicIp = usesClientIp(selectedDefinition) ? await runDoomainEffect(fetchPublicIp()) : undefined
+        const credentials = await promptProviderCredentials(selectedDefinition, detectedPublicIp)
         if (!credentials) return
 
         const domainSpinner = p.spinner()
         activeSpinner = domainSpinner
         domainSpinner.start(`Verifying ${selectedDefinition.displayName} credentials and loading domains`)
-        const provider = selectedDefinition.create({ credentials, debug: process.env.DOOMAIN_DEBUG === '1' })
-        const zones = await provider.listZones()
+        const provider = selectedDefinition.create({
+          credentials,
+          debug: process.env.DOOMAIN_DEBUG === '1',
+          transportErrorCode: 'DOMAIN_LINK_FAILED',
+        })
+        const zones = await runDoomainEffect(provider.listZones())
         domainSpinner.stop(
           `Connected ${selectedDefinition.displayName} and loaded ${zones.length} domain${zones.length === 1 ? '' : 's'}`,
         )
         activeSpinner = undefined
         domainOptions.push(...zones.map((zone) => toProviderDomainOption(selectedDefinition, providerAccount, zone)))
 
-        await updateConfig((current) => ({
-          ...current,
-          defaults: { ...current.defaults, provider: selectedDefinition.id },
-          providers: {
-            ...current.providers,
-            [selectedDefinition.id]: withProviderAccountCredentials(
-              current.providers?.[selectedDefinition.id],
-              account,
-              credentials,
-            ),
-          },
-          vercel: { token: vercelToken, teamId: vercelTeamId },
-        }))
+        await runDoomainEffect(
+          updateConfig(
+            (current) => ({
+              ...current,
+              defaults: { ...current.defaults, provider: selectedDefinition.id },
+              providers: {
+                ...current.providers,
+                [selectedDefinition.id]: withProviderAccountCredentials(
+                  current.providers?.[selectedDefinition.id],
+                  account,
+                  credentials,
+                ),
+              },
+              vercel: { token: vercelToken, teamId: vercelTeamId },
+            }),
+            'DOMAIN_LINK_FAILED',
+          ),
+        )
       } else {
         const domainSpinner = p.spinner()
         activeSpinner = domainSpinner
@@ -440,7 +451,7 @@ export default class Wizard extends Command {
 
         for (const { account, definition } of configuredProviderAccounts) {
           try {
-            domainOptions.push(...(await listProviderDomainOptions(definition, account)))
+            domainOptions.push(...(await runDoomainEffect(listProviderDomainOptions(definition, account))))
           } catch (error) {
             const label = account.isDefaultAccount
               ? definition.displayName
@@ -453,10 +464,15 @@ export default class Wizard extends Command {
         activeSpinner = undefined
         for (const failure of providerFailures) p.log.warning(failure)
 
-        await updateConfig((current) => ({
-          ...current,
-          vercel: { token: vercelToken, teamId: vercelTeamId },
-        }))
+        await runDoomainEffect(
+          updateConfig(
+            (current) => ({
+              ...current,
+              vercel: { token: vercelToken, teamId: vercelTeamId },
+            }),
+            'DOMAIN_LINK_FAILED',
+          ),
+        )
       }
 
       if (domainOptions.length === 0) {
@@ -495,10 +511,15 @@ export default class Wizard extends Command {
 
       const domain = selectedDomain.domain
 
-      await updateConfig((current) => ({
-        ...current,
-        defaults: { ...current.defaults, domain, provider: selectedDomain.providerId },
-      }))
+      await runDoomainEffect(
+        updateConfig(
+          (current) => ({
+            ...current,
+            defaults: { ...current.defaults, domain, provider: selectedDomain.providerId },
+          }),
+          'DOMAIN_LINK_FAILED',
+        ),
+      )
 
       const mode = await p.select({
         message: 'What should Doomain add?',
@@ -518,14 +539,16 @@ export default class Wizard extends Command {
       }
 
       const fullDomain = apex ? domain : `${subdomain}.${domain}`
-      const preview = await createLinkPlan({
-        account: selectedDomain.account,
-        provider: selectedDomain.providerId,
-        domain,
-        subdomain,
-        apex,
-        project,
-      })
+      const preview = await runDoomainEffect(
+        createLinkPlan({
+          account: selectedDomain.account,
+          provider: selectedDomain.providerId,
+          domain,
+          subdomain,
+          apex,
+          project,
+        }),
+      )
       p.note(
         [
           `Vercel: add ${preview.domain} to ${projectDisplay}`,
@@ -543,31 +566,33 @@ export default class Wizard extends Command {
       const spinner = p.spinner()
       activeSpinner = spinner
       spinner.start('Adding domain to Vercel')
-      const result = await linkDomain({
-        account: selectedDomain.account,
-        provider: selectedDomain.providerId,
-        domain,
-        subdomain,
-        apex,
-        project,
-        confirmDnsOverride: async (warning) => {
-          spinner.stop('Existing DNS target found')
-          p.note(dnsOverrideNote(warning), 'DNS already points elsewhere')
-          const confirmed = await p.confirm({
-            message: `Override existing DNS records for ${warning.domain}?`,
-            initialValue: false,
-          })
-          if (confirmed === true) {
-            spinner.start('Continuing domain link')
-            return true
-          }
+      const result = await runDoomainEffect(
+        linkDomain({
+          account: selectedDomain.account,
+          provider: selectedDomain.providerId,
+          domain,
+          subdomain,
+          apex,
+          project,
+          confirmDnsOverride: async (warning) => {
+            spinner.stop('Existing DNS target found')
+            p.note(dnsOverrideNote(warning), 'DNS already points elsewhere')
+            const confirmed = await p.confirm({
+              message: `Override existing DNS records for ${warning.domain}?`,
+              initialValue: false,
+            })
+            if (confirmed === true) {
+              spinner.start('Continuing domain link')
+              return true
+            }
 
-          activeSpinner = undefined
-          return false
-        },
-        progress: ({ message }) => spinner.message(message),
-        wait: true,
-      })
+            activeSpinner = undefined
+            return false
+          },
+          progress: ({ message }) => spinner.message(message),
+          wait: true,
+        }),
+      )
       spinner.stop(result.vercel.verified ? 'Domain linked and verified' : 'Domain linked')
       activeSpinner = undefined
 

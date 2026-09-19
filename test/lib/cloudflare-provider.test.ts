@@ -1,6 +1,8 @@
 import { expect } from 'chai'
 
+import { DoomainError } from '../../src/lib/errors.js'
 import { createProvider } from '../../src/lib/providers/registry.js'
+import { promiseProvider, runEffect } from '../helpers/effect.js'
 
 function cloudflareResponse<T>(result: T, resultInfo: Record<string, unknown> = {}) {
   return { errors: [], messages: [], result, result_info: resultInfo, success: true }
@@ -37,7 +39,7 @@ describe('cloudflare provider', () => {
       )
     }) as typeof fetch
 
-    const provider = await createProvider('cloudflare')
+    const provider = promiseProvider(await runEffect(createProvider('cloudflare')))
     const zones = await provider.listZones()
 
     expect(pages).to.deep.equal(['1', '2'])
@@ -45,6 +47,39 @@ describe('cloudflare provider', () => {
       { id: 'zone_1', metadata: { cloudflare: { id: 'zone_1', name: 'example.com' } }, name: 'example.com' },
       { id: 'zone_2', metadata: { cloudflare: { id: 'zone_2', name: 'example.org' } }, name: 'example.org' },
     ])
+  })
+
+  it('uses the caller transport error code for network failures', async () => {
+    globalThis.fetch = (async () => {
+      throw new Error('network unavailable')
+    }) as typeof fetch
+    const provider = promiseProvider(
+      await runEffect(createProvider('cloudflare', { transportErrorCode: 'DNS_POINT_FAILED' })),
+    )
+
+    try {
+      await provider.listZones()
+      throw new Error('Expected listZones to fail')
+    } catch (error) {
+      expect(error).to.be.instanceOf(DoomainError)
+      expect((error as DoomainError).code).to.equal('DNS_POINT_FAILED')
+      expect((error as Error).message).to.equal('network unavailable')
+    }
+  })
+
+  it('fails in the typed channel for malformed successful responses', async () => {
+    globalThis.fetch = (async () => new Response('not json', { status: 200 })) as typeof fetch
+    const provider = promiseProvider(
+      await runEffect(createProvider('cloudflare', { transportErrorCode: 'DNS_POINT_FAILED' })),
+    )
+
+    try {
+      await provider.listZones()
+      throw new Error('Expected listZones to fail')
+    } catch (error) {
+      expect(error).to.be.instanceOf(DoomainError)
+      expect((error as DoomainError).code).to.equal('DNS_POINT_FAILED')
+    }
   })
 
   it('lists DNS records with relative names', async () => {
@@ -67,7 +102,7 @@ describe('cloudflare provider', () => {
         ),
       )) as typeof fetch
 
-    const provider = await createProvider('cloudflare')
+    const provider = promiseProvider(await runEffect(createProvider('cloudflare')))
     const records = await provider.listRecords({ id: 'zone_1', name: 'example.com' })
 
     expect(records).to.deep.equal([
@@ -145,7 +180,7 @@ describe('cloudflare provider', () => {
       )
     }) as typeof fetch
 
-    const provider = await createProvider('cloudflare')
+    const provider = promiseProvider(await runEffect(createProvider('cloudflare')))
     const zone = { id: 'zone_1', name: 'example.com' }
     const plan = await provider.planChanges(zone, [
       { name: 'app', proxied: false, ttl: 3600, type: 'CNAME', value: 'cname.vercel-dns.com' },
@@ -194,7 +229,7 @@ describe('cloudflare provider', () => {
       )
     }) as typeof fetch
 
-    const provider = await createProvider('cloudflare')
+    const provider = promiseProvider(await runEffect(createProvider('cloudflare')))
     const zone = { id: 'zone_1', name: 'example.com' }
     const plan = await provider.planChanges(zone, [
       { name: 'app', proxied: false, ttl: 3600, type: 'CNAME', value: 'cname.vercel-dns.com' },
@@ -215,7 +250,7 @@ describe('cloudflare provider', () => {
       return jsonResponse(cloudflareResponse({ id: 'record_1' }))
     }) as typeof fetch
 
-    const provider = await createProvider('cloudflare')
+    const provider = promiseProvider(await runEffect(createProvider('cloudflare')))
     await provider.deleteRecord(
       { id: 'zone_1', name: 'example.com' },
       { id: 'record_1', name: 'app', type: 'CNAME', value: 'old.example.com' },
@@ -233,7 +268,7 @@ describe('cloudflare provider', () => {
         success: false,
       })) as typeof fetch
 
-    const provider = await createProvider('cloudflare')
+    const provider = promiseProvider(await runEffect(createProvider('cloudflare')))
     let error: unknown
 
     try {

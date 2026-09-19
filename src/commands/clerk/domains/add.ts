@@ -2,6 +2,7 @@ import * as p from '@clack/prompts'
 import { Args, Command, Flags } from '@oclif/core'
 
 import { type AddClerkDomainResult, addClerkProductionDomain } from '../../../lib/clerk-domain.js'
+import { runDoomainEffect } from '../../../lib/effect.js'
 import { accountFlag, jsonFlag, providerFlag } from '../../../lib/flags.js'
 import type { DnsOverrideWarning } from '../../../lib/link-domain.js'
 import { createOutput, outputError } from '../../../lib/output.js'
@@ -75,26 +76,28 @@ export default class ClerkDomainsAdd extends Command {
 
       spinner = out.spinner()
       spinner.start(flags['dry-run'] ? 'Checking Clerk production setup' : 'Creating Clerk production setup')
-      const result = await addClerkProductionDomain({
-        account: flags.account,
-        app: flags.app,
-        confirmDnsOverride: out.json
-          ? undefined
-          : async (warning) => {
-              spinner?.stop('DNS conflict found')
-              p.note(conflictNote(warning), 'DNS records point elsewhere')
-              const confirmed = await p.confirm({ message: 'Overwrite these DNS records?', initialValue: false })
-              if (confirmed === true) spinner?.start('Continuing Clerk production setup')
-              return confirmed === true
-            },
-        domain: args.domain,
-        dryRun: flags['dry-run'],
-        force: flags.force,
-        progress: out.json ? undefined : (message) => spinner?.message(message),
-        provider: flags.provider,
-        timeoutSeconds: flags.timeout,
-        wait: flags.wait,
-      })
+      const result = await runDoomainEffect(
+        addClerkProductionDomain({
+          account: flags.account,
+          app: flags.app,
+          confirmDnsOverride: out.json
+            ? undefined
+            : async (warning) => {
+                spinner?.stop('DNS conflict found')
+                p.note(conflictNote(warning), 'DNS records point elsewhere')
+                const confirmed = await p.confirm({ message: 'Overwrite these DNS records?', initialValue: false })
+                if (confirmed === true) spinner?.start('Continuing Clerk production setup')
+                return confirmed === true
+              },
+          domain: args.domain,
+          dryRun: flags['dry-run'],
+          force: flags.force,
+          progress: out.json ? undefined : (message) => spinner?.message(message),
+          provider: flags.provider,
+          timeoutSeconds: flags.timeout,
+          wait: flags.wait,
+        }),
+      )
 
       spinner.stop(flags['dry-run'] ? 'Clerk production setup is available' : 'Clerk production domain configured')
       out.result(result)

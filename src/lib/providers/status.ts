@@ -1,4 +1,7 @@
+import { Effect } from 'effect'
+
 import { type DoomainConfig, loadConfig } from '../config.js'
+import { type DoomainEffect, trySync } from '../effect.js'
 import {
   DEFAULT_PROVIDER_ACCOUNT,
   isProviderAccountConfigured,
@@ -32,46 +35,51 @@ export function isProviderConfigured(
   return isProviderAccountConfigured(definition, config, opts)
 }
 
-export async function listProviderStatuses(opts: { verify?: boolean } = {}): Promise<ProviderStatus[]> {
-  const config = await loadConfig()
-  const statuses: ProviderStatus[] = []
+export function listProviderStatuses(opts: { verify?: boolean } = {}): DoomainEffect<ProviderStatus[]> {
+  return Effect.gen(function* () {
+    const config = yield* loadConfig()
+    const statuses: ProviderStatus[] = []
 
-  for (const definition of listProviderDefinitions()) {
-    const accounts = listConfiguredProviderAccounts(config, definition)
-    const refs =
-      accounts.length > 0
-        ? accounts
-        : [{ account: DEFAULT_PROVIDER_ACCOUNT, isDefaultAccount: true, providerId: definition.id }]
+    for (const definition of listProviderDefinitions()) {
+      const accounts = yield* trySync(() => listConfiguredProviderAccounts(config, definition), 'INVALID_INPUT')
+      const refs =
+        accounts.length > 0
+          ? accounts
+          : [{ account: DEFAULT_PROVIDER_ACCOUNT, isDefaultAccount: true, providerId: definition.id }]
 
-    for (const ref of refs) {
-      const account = normalizeProviderAccount(ref.account)
-      const configured = accounts.some((item) => item.account === account)
-      const status: ProviderStatus = {
-        account,
-        accountLabel: ref.isDefaultAccount ? `${definition.id}/default` : `${definition.id}/${account}`,
-        configured,
-        default: config.defaults?.provider === definition.id,
-        displayName: definition.displayName,
-        docsUrl: definition.docsUrl,
-        id: definition.id,
-        isDefaultAccount: ref.isDefaultAccount,
-        isPreferredProvider: config.defaults?.provider === definition.id,
-      }
-
-      if (configured && opts.verify) {
-        try {
-          const zones = await (await createProvider(definition.id, { account })).listZones()
-          status.domainCount = zones.length
-          status.verified = true
-        } catch (error) {
-          status.error = error instanceof Error ? error.message : String(error)
-          status.verified = false
+      for (const ref of refs) {
+        const account = yield* trySync(() => normalizeProviderAccount(ref.account), 'INVALID_INPUT')
+        const configured = accounts.some((item) => item.account === account)
+        const status: ProviderStatus = {
+          account,
+          accountLabel: ref.isDefaultAccount ? `${definition.id}/default` : `${definition.id}/${account}`,
+          configured,
+          default: config.defaults?.provider === definition.id,
+          displayName: definition.displayName,
+          docsUrl: definition.docsUrl,
+          id: definition.id,
+          isDefaultAccount: ref.isDefaultAccount,
+          isPreferredProvider: config.defaults?.provider === definition.id,
         }
+
+        if (configured && opts.verify) {
+          const verified = yield* Effect.gen(function* () {
+            const provider = yield* createProvider(definition.id, { account })
+            return yield* provider.listZones()
+          }).pipe(Effect.either)
+          if (verified._tag === 'Right') {
+            status.domainCount = verified.right.length
+            status.verified = true
+          } else {
+            status.error = verified.left.message
+            status.verified = false
+          }
+        }
+
+        statuses.push(status)
       }
-
-      statuses.push(status)
     }
-  }
 
-  return statuses
+    return statuses
+  })
 }

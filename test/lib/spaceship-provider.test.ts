@@ -1,6 +1,7 @@
 import { expect } from 'chai'
 
 import { createProvider } from '../../src/lib/providers/registry.js'
+import { promiseProvider, runEffect } from '../helpers/effect.js'
 
 describe('spaceship provider', () => {
   const originalFetch = globalThis.fetch
@@ -35,7 +36,7 @@ describe('spaceship provider', () => {
       } as Response
     }) as typeof fetch
 
-    const provider = await createProvider('spaceship')
+    const provider = promiseProvider(await runEffect(createProvider('spaceship')))
     const zones = await provider.listZones()
 
     expect(requestedSkips).to.deep.equal(['0', '2'])
@@ -56,7 +57,7 @@ describe('spaceship provider', () => {
       return { json: async () => ({}), ok: true, status: 200 } as Response
     }) as typeof fetch
 
-    const provider = await createProvider('spaceship')
+    const provider = promiseProvider(await runEffect(createProvider('spaceship')))
     const zone = { id: 'example.com', name: 'example.com' }
     await provider.applyChanges(zone, {
       changes: [

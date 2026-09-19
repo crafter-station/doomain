@@ -1,5 +1,5 @@
 import { Args, Command } from '@oclif/core'
-
+import { runDoomainEffect } from '../../lib/effect.js'
 import { accountFlag, jsonFlag } from '../../lib/flags.js'
 import { createOutput, outputError } from '../../lib/output.js'
 import { isDefaultProviderAccount, normalizeProviderAccount } from '../../lib/providers/core/config.js'
@@ -23,8 +23,10 @@ export default class ProvidersVerify extends Command {
 
     try {
       const account = normalizeProviderAccount(flags.account)
-      const provider = await createProvider(args.provider, { account })
-      const health = await provider.verifyCredentials()
+      const provider = await runDoomainEffect(
+        createProvider(args.provider, { account, transportErrorCode: 'PROVIDER_AUTH_FAILED' }),
+      )
+      const health = await runDoomainEffect(provider.verifyCredentials())
       out.result({ account, health, isDefaultAccount: isDefaultProviderAccount(account), provider: provider.id })
       out.success(`${provider.name} credentials verified.`)
     } catch (error) {

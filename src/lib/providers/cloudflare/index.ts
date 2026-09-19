@@ -1,3 +1,6 @@
+import { Effect } from 'effect'
+
+import { type DoomainEffect, trySync } from '../../effect.js'
 import { normalizeDomain } from '../../validate.js'
 import { ProviderError } from '../core/errors.js'
 import { createProviderHttpClient, type ProviderHttpClient } from '../core/http.js'
@@ -146,132 +149,155 @@ export class CloudflareProvider implements DnsProvider {
       headers: { Authorization: `Bearer ${context.credentials.apiToken}` },
       providerId: this.id,
       signal: context.signal,
+      transportErrorCode: context.transportErrorCode,
     })
   }
 
-  async verifyCredentials(): Promise<ProviderHealth> {
-    await this.listZones()
-    return { ok: true }
+  verifyCredentials(): DoomainEffect<ProviderHealth> {
+    return this.listZones().pipe(Effect.as({ ok: true }))
   }
 
-  async listZones(): Promise<DnsZone[]> {
-    const zones: DnsZone[] = []
+  listZones(): DoomainEffect<DnsZone[]> {
+    return Effect.gen(this, function* () {
+      const zones: DnsZone[] = []
 
-    for (let page = 1; page <= 100; page += 1) {
-      const response = await this.request<CloudflareZone[]>('/zones', {
-        query: { 'account.id': this.accountId, direction: 'asc', order: 'name', page, per_page: 50 },
-      })
+      for (let page = 1; page <= 100; page += 1) {
+        const response = yield* this.request<CloudflareZone[]>('/zones', {
+          query: { 'account.id': this.accountId, direction: 'asc', order: 'name', page, per_page: 50 },
+        })
 
-      for (const zone of response.result ?? []) {
-        const dnsZone = toZone(zone)
-        if (dnsZone) zones.push(dnsZone)
+        for (const zone of response.result ?? []) {
+          const dnsZone = toZone(zone)
+          if (dnsZone) zones.push(dnsZone)
+        }
+
+        const totalPages = response.result_info?.total_pages ?? page
+        if (page >= totalPages || (response.result ?? []).length === 0) break
       }
 
-      const totalPages = response.result_info?.total_pages ?? page
-      if (page >= totalPages || (response.result ?? []).length === 0) break
-    }
-
-    return zones
-  }
-
-  async getZone(domain: string): Promise<DnsZone | null> {
-    const normalized = normalizeDomain(domain)
-    const zones = await this.listZones()
-    return zones.find((zone) => zone.name === normalized) ?? null
-  }
-
-  async listRecords(zone: DnsZone): Promise<DnsRecord[]> {
-    const records: DnsRecord[] = []
-
-    for (let page = 1; page <= 100; page += 1) {
-      const response = await this.request<CloudflareRecord[]>(`/zones/${zone.id}/dns_records`, {
-        query: { page, per_page: 100 },
-      })
-
-      for (const record of response.result ?? []) {
-        const dnsRecord = toDnsRecord(record, zone)
-        if (dnsRecord) records.push(dnsRecord)
-      }
-
-      const totalPages = response.result_info?.total_pages ?? page
-      if (page >= totalPages || (response.result ?? []).length === 0) break
-    }
-
-    return records
-  }
-
-  async planChanges(zone: DnsZone, desired: DnsRecordInput[], opts: { force?: boolean } = {}): Promise<DnsChangePlan> {
-    return planDnsChanges({
-      desired,
-      existing: await this.listRecords(zone),
-      force: opts.force,
-      providerId: this.id,
-      zone,
+      return zones
     })
   }
 
-  async applyChanges(zone: DnsZone, plan: DnsChangePlan): Promise<{ applied: DnsChange[]; skipped: DnsRecordInput[] }> {
-    assertNoConflicts(this.id, plan)
-    const applied: DnsChange[] = []
-    const skipped: DnsRecordInput[] = []
-
-    for (const change of plan.changes) {
-      if (change.action === 'skip') {
-        skipped.push(change.record)
-        continue
-      }
-
-      if (change.action === 'delete') await this.deleteRecord(zone, change.existing)
-      else if (change.action === 'update') await this.updateRecord(zone, change.existing, change.record)
-      else await this.createRecord(zone, change.record)
-
-      applied.push(change)
-    }
-
-    return { applied, skipped }
+  getZone(domain: string): DoomainEffect<DnsZone | null> {
+    return Effect.gen(this, function* () {
+      const normalized = yield* trySync(() => normalizeDomain(domain), 'INVALID_INPUT')
+      const zones = yield* this.listZones()
+      return zones.find((zone) => zone.name === normalized) ?? null
+    })
   }
 
-  async upsertRecord(zone: DnsZone, record: DnsRecordInput): Promise<DnsRecord> {
-    const existing = (await this.listRecords(zone)).find(
-      (item) => item.name === record.name && item.type === record.type,
+  listRecords(zone: DnsZone): DoomainEffect<DnsRecord[]> {
+    return Effect.gen(this, function* () {
+      const records: DnsRecord[] = []
+
+      for (let page = 1; page <= 100; page += 1) {
+        const response = yield* this.request<CloudflareRecord[]>(`/zones/${zone.id}/dns_records`, {
+          query: { page, per_page: 100 },
+        })
+
+        for (const record of response.result ?? []) {
+          const dnsRecord = toDnsRecord(record, zone)
+          if (dnsRecord) records.push(dnsRecord)
+        }
+
+        const totalPages = response.result_info?.total_pages ?? page
+        if (page >= totalPages || (response.result ?? []).length === 0) break
+      }
+
+      return records
+    })
+  }
+
+  planChanges(zone: DnsZone, desired: DnsRecordInput[], opts: { force?: boolean } = {}): DoomainEffect<DnsChangePlan> {
+    return this.listRecords(zone).pipe(
+      Effect.map((existing) => planDnsChanges({ desired, existing, force: opts.force, providerId: this.id, zone })),
     )
-    if (existing) return this.updateRecord(zone, existing, record)
-    return this.createRecord(zone, record)
   }
 
-  async deleteRecord(zone: DnsZone, record: DnsRecord): Promise<void> {
+  applyChanges(zone: DnsZone, plan: DnsChangePlan): DoomainEffect<{ applied: DnsChange[]; skipped: DnsRecordInput[] }> {
+    return Effect.gen(this, function* () {
+      yield* assertNoConflicts(this.id, plan)
+      const applied: DnsChange[] = []
+      const skipped: DnsRecordInput[] = []
+
+      for (const change of plan.changes) {
+        if (change.action === 'skip') {
+          skipped.push(change.record)
+          continue
+        }
+
+        if (change.action === 'delete') yield* this.deleteRecord(zone, change.existing)
+        else if (change.action === 'update') yield* this.updateRecord(zone, change.existing, change.record)
+        else yield* this.createRecord(zone, change.record)
+
+        applied.push(change)
+      }
+
+      return { applied, skipped }
+    })
+  }
+
+  upsertRecord(zone: DnsZone, record: DnsRecordInput): DoomainEffect<DnsRecord> {
+    return Effect.gen(this, function* () {
+      const existing = (yield* this.listRecords(zone)).find(
+        (item) => item.name === record.name && item.type === record.type,
+      )
+      return yield* existing ? this.updateRecord(zone, existing, record) : this.createRecord(zone, record)
+    })
+  }
+
+  deleteRecord(zone: DnsZone, record: DnsRecord): DoomainEffect<void> {
     if (!record.id)
-      throw new ProviderError(this.id, 'PROVIDER_API_ERROR', 'Cloudflare DNS record id is required to delete a record.')
-    await this.request(`/zones/${zone.id}/dns_records/${record.id}`, { method: 'DELETE' })
+      return Effect.fail(
+        new ProviderError(this.id, 'PROVIDER_API_ERROR', 'Cloudflare DNS record id is required to delete a record.'),
+      )
+    return this.request(`/zones/${zone.id}/dns_records/${record.id}`, { method: 'DELETE' }).pipe(Effect.asVoid)
   }
 
-  private async createRecord(zone: DnsZone, record: DnsRecordInput): Promise<DnsRecord> {
-    const response = await this.request<CloudflareRecord>(`/zones/${zone.id}/dns_records`, {
+  private createRecord(zone: DnsZone, record: DnsRecordInput): DoomainEffect<DnsRecord> {
+    return this.request<CloudflareRecord>(`/zones/${zone.id}/dns_records`, {
       body: toCloudflareRecord(record, zone),
       method: 'POST',
-    })
-    const created = response.result ? toDnsRecord(response.result, zone) : null
-    return created ?? { ...record, ttl: record.ttl ?? capabilities.defaultTtl }
+    }).pipe(
+      Effect.map((response) => {
+        const created = response.result ? toDnsRecord(response.result, zone) : null
+        return created ?? { ...record, ttl: record.ttl ?? capabilities.defaultTtl }
+      }),
+    )
   }
 
-  private async updateRecord(zone: DnsZone, existing: DnsRecord, record: DnsRecordInput): Promise<DnsRecord> {
+  private updateRecord(zone: DnsZone, existing: DnsRecord, record: DnsRecordInput): DoomainEffect<DnsRecord> {
     if (!existing.id)
-      throw new ProviderError(this.id, 'PROVIDER_API_ERROR', 'Cloudflare DNS record id is required to update a record.')
-    const response = await this.request<CloudflareRecord>(`/zones/${zone.id}/dns_records/${existing.id}`, {
+      return Effect.fail(
+        new ProviderError(this.id, 'PROVIDER_API_ERROR', 'Cloudflare DNS record id is required to update a record.'),
+      )
+    return this.request<CloudflareRecord>(`/zones/${zone.id}/dns_records/${existing.id}`, {
       body: toCloudflareRecord(record, zone),
       method: 'PUT',
-    })
-    const updated = response.result ? toDnsRecord(response.result, zone) : null
-    return updated ?? { ...record, id: existing.id, ttl: record.ttl ?? capabilities.defaultTtl }
+    }).pipe(
+      Effect.map((response) => {
+        const updated = response.result ? toDnsRecord(response.result, zone) : null
+        return updated ?? { ...record, id: existing.id, ttl: record.ttl ?? capabilities.defaultTtl }
+      }),
+    )
   }
 
-  private async request<T>(path: string, init: Parameters<ProviderHttpClient['request']>[1] = {}) {
-    const response = await this.http.request<CloudflareResponse<T>>(path, init)
-    if (response.success === false) {
-      throw new ProviderError(this.id, 'PROVIDER_API_ERROR', cloudflareErrorMessage(response), response.errors)
-    }
-
-    return response
+  private request<T>(
+    path: string,
+    init: Parameters<ProviderHttpClient['request']>[1] = {},
+  ): DoomainEffect<CloudflareResponse<T>> {
+    return this.http
+      .request<CloudflareResponse<T>>(path, init)
+      .pipe(
+        Effect.flatMap((response) =>
+          response.success === false
+            ? Effect.fail(
+                new ProviderError(this.id, 'PROVIDER_API_ERROR', cloudflareErrorMessage(response), response.errors),
+              )
+            : Effect.succeed(response),
+        ),
+      )
   }
 }
 

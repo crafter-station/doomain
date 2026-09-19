@@ -1,5 +1,8 @@
+import { Effect } from 'effect'
+
 import { type DoomainConfig, loadConfig, type ProviderConfig } from '../../config.js'
-import { DoomainError } from '../../errors.js'
+import { type DoomainEffect, trySync } from '../../effect.js'
+import { DoomainError, type DoomainErrorCode } from '../../errors.js'
 import { ensureProviderAccount } from '../../validate.js'
 import type { CredentialDefinition, DnsProviderDefinition, ProviderContext } from './types.js'
 
@@ -13,6 +16,7 @@ export interface ProviderAccountRef {
 
 export interface ProviderAccountOptions {
   account?: string
+  transportErrorCode?: DoomainErrorCode
 }
 
 export function normalizeProviderAccount(account?: string): string {
@@ -140,26 +144,30 @@ export function listConfiguredProviderAccounts(
   return accounts
 }
 
-export async function createProviderContext(
+export function createProviderContext(
   definition: DnsProviderDefinition,
   opts: ProviderAccountOptions = {},
-): Promise<ProviderContext> {
-  const config = await loadConfig()
-  const credentials: Record<string, string> = {}
-  const account = normalizeProviderAccount(opts.account)
+): DoomainEffect<ProviderContext> {
+  return Effect.gen(function* () {
+    const config = yield* loadConfig()
+    const credentials: Record<string, string> = {}
+    const account = yield* trySync(() => normalizeProviderAccount(opts.account), 'INVALID_INPUT')
 
-  for (const credential of definition.credentials) {
-    const value = getProviderCredential(config, definition.id, credential, { account })
-    if (value) credentials[credential.key] = value
-    else if (credential.required !== false) {
-      const accountHint = account === DEFAULT_PROVIDER_ACCOUNT ? '' : ` for account ${account}`
-      throw new DoomainError(
-        'MISSING_CREDENTIALS',
-        `Missing ${definition.displayName} ${credential.label}${accountHint}. Run \`doomain providers connect ${definition.id}${account === DEFAULT_PROVIDER_ACCOUNT ? '' : ` --account ${account}`}\` or set ${credential.env}.`,
-        { account, provider: definition.id },
-      )
+    for (const credential of definition.credentials) {
+      const value = getProviderCredential(config, definition.id, credential, { account })
+      if (value) credentials[credential.key] = value
+      else if (credential.required !== false) {
+        const accountHint = account === DEFAULT_PROVIDER_ACCOUNT ? '' : ` for account ${account}`
+        return yield* Effect.fail(
+          new DoomainError(
+            'MISSING_CREDENTIALS',
+            `Missing ${definition.displayName} ${credential.label}${accountHint}. Run \`doomain providers connect ${definition.id}${account === DEFAULT_PROVIDER_ACCOUNT ? '' : ` --account ${account}`}\` or set ${credential.env}.`,
+            { account, provider: definition.id },
+          ),
+        )
+      }
     }
-  }
 
-  return { credentials, debug: process.env.DOOMAIN_DEBUG === '1' }
+    return { credentials, debug: process.env.DOOMAIN_DEBUG === '1', transportErrorCode: opts.transportErrorCode }
+  })
 }

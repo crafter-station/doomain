@@ -1,7 +1,10 @@
+import { Effect } from 'effect'
+
 import { reconcileRecordRemoval } from './dns-reconciliation.js'
 import { type DnsRecordSelector, recordMatchesSelector } from './dns-records.js'
 import { type ResolvedDnsTarget, resolveProviderTarget } from './domain-provider.js'
-import { DoomainError } from './errors.js'
+import { type DoomainEffect, tryPromise } from './effect.js'
+import { DoomainError, type DoomainErrorCode } from './errors.js'
 import { createProvider } from './providers/registry.js'
 import type { DnsChangePlan, DnsProvider, DnsRecord, DnsRecordType } from './providers/types.js'
 
@@ -35,11 +38,17 @@ export interface RemoveDomainResult {
 }
 
 interface RemoveDomainDependencies {
-  createProvider: (provider: string, opts: { account?: string }) => Promise<DnsProvider>
-  resolveTarget: (input: Pick<RemoveDomainInput, 'account' | 'domain' | 'provider'>) => Promise<ResolvedDnsTarget>
+  createProvider: (
+    provider: string,
+    opts: { account?: string; transportErrorCode?: DoomainErrorCode },
+  ) => DoomainEffect<DnsProvider>
+  resolveTarget: (input: Pick<RemoveDomainInput, 'account' | 'domain' | 'provider'>) => DoomainEffect<ResolvedDnsTarget>
 }
 
-const defaultDependencies: RemoveDomainDependencies = { createProvider, resolveTarget: resolveProviderTarget }
+const defaultDependencies: RemoveDomainDependencies = {
+  createProvider,
+  resolveTarget: (input) => resolveProviderTarget(input, { transportErrorCode: 'DNS_REMOVE_FAILED' }),
+}
 
 function quoteCommandArgument(value: string): string {
   return /^[a-zA-Z0-9_./:@+-]+$/.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`
@@ -80,100 +89,109 @@ function ambiguousDeletionError(input: RemoveDomainInput, records: DnsRecord[]):
   )
 }
 
-export async function removeDomain(
+export function removeDomain(
   input: RemoveDomainInput,
   dependencies: RemoveDomainDependencies = defaultDependencies,
-): Promise<RemoveDomainResult> {
-  if (!input.allMatching && input.value === undefined) {
-    throw new DoomainError('INVALID_INPUT', 'An exact --value is required unless --all-matching is passed.', {
-      recovery: 'Pass --value <expected-value>, or preview --all-matching with --dry-run.',
+): DoomainEffect<RemoveDomainResult> {
+  return Effect.gen(function* () {
+    if (!input.allMatching && input.value === undefined) {
+      return yield* Effect.fail(
+        new DoomainError('INVALID_INPUT', 'An exact --value is required unless --all-matching is passed.', {
+          recovery: 'Pass --value <expected-value>, or preview --all-matching with --dry-run.',
+        }),
+      )
+    }
+
+    const resolved = yield* dependencies
+      .resolveTarget(input)
+      .pipe(Effect.mapError((error) => removalResolutionError(error, input)))
+    const provider = yield* dependencies.createProvider(resolved.provider, {
+      account: resolved.account,
+      transportErrorCode: 'DNS_REMOVE_FAILED',
     })
-  }
+    if (!provider.capabilities.recordTypes.includes(input.recordType)) {
+      return yield* Effect.fail(
+        new DoomainError(
+          'PROVIDER_UNSUPPORTED_RECORD',
+          `${provider.name} does not support ${input.recordType} records.`,
+        ),
+      )
+    }
 
-  let resolved: ResolvedDnsTarget
-  try {
-    resolved = await dependencies.resolveTarget(input)
-  } catch (error) {
-    if (error instanceof DoomainError) throw removalResolutionError(error, input)
-    throw error
-  }
-  const provider = await dependencies.createProvider(resolved.provider, { account: resolved.account })
-  if (!provider.capabilities.recordTypes.includes(input.recordType)) {
-    throw new DoomainError(
-      'PROVIDER_UNSUPPORTED_RECORD',
-      `${provider.name} does not support ${input.recordType} records.`,
-    )
-  }
+    const zone = yield* provider.getZone(resolved.target.zoneDomain)
+    if (!zone) {
+      return yield* Effect.fail(
+        new DoomainError(
+          'PROVIDER_ZONE_NOT_FOUND',
+          `${provider.name} does not have a DNS zone for ${resolved.target.zoneDomain}.`,
+        ),
+      )
+    }
 
-  const zone = await provider.getZone(resolved.target.zoneDomain)
-  if (!zone) {
-    throw new DoomainError(
-      'PROVIDER_ZONE_NOT_FOUND',
-      `${provider.name} does not have a DNS zone for ${resolved.target.zoneDomain}.`,
-    )
-  }
+    const selector = {
+      name: resolved.target.recordName,
+      type: input.recordType,
+      ...(input.value === undefined ? {} : { value: input.value }),
+    }
+    const existing = yield* provider.listRecords(zone)
+    const matched = existing.filter((record) => recordMatchesSelector(record, selector))
 
-  const selector = {
-    name: resolved.target.recordName,
-    type: input.recordType,
-    ...(input.value === undefined ? {} : { value: input.value }),
-  }
-  const existing = await provider.listRecords(zone)
-  const matched = existing.filter((record) => recordMatchesSelector(record, selector))
+    if (matched.length > 1 && !input.allMatching) {
+      const confirmed = input.confirmMultiple
+        ? yield* tryPromise(() => input.confirmMultiple?.(matched) ?? Promise.resolve(false), 'DNS_REMOVE_FAILED')
+        : false
+      if (!confirmed) return yield* Effect.fail(ambiguousDeletionError(input, matched))
+    }
 
-  if (matched.length > 1 && !input.allMatching) {
-    const confirmed = (await input.confirmMultiple?.(matched)) === true
-    if (!confirmed) throw ambiguousDeletionError(input, matched)
-  }
+    const base = {
+      account: resolved.account,
+      accountInferred: resolved.accountInferred,
+      domain: resolved.target.fullDomain,
+      isDefaultAccount: resolved.isDefaultAccount,
+      matched,
+      provider: resolved.provider,
+      providerInferred: resolved.providerInferred,
+      selector,
+      zoneDomain: resolved.target.zoneDomain,
+    }
 
-  const base = {
-    account: resolved.account,
-    accountInferred: resolved.accountInferred,
-    domain: resolved.target.fullDomain,
-    isDefaultAccount: resolved.isDefaultAccount,
-    matched,
-    provider: resolved.provider,
-    providerInferred: resolved.providerInferred,
-    selector,
-    zoneDomain: resolved.target.zoneDomain,
-  }
+    if (input.dryRun) {
+      return {
+        ...base,
+        dryRun: true,
+        reconciled: false,
+        reconciliationAttempts: 0,
+        removed: 0,
+      }
+    }
 
-  if (input.dryRun) {
+    if (matched.length === 0) {
+      return { ...base, dryRun: false, reconciled: true, reconciliationAttempts: 1, removed: 0 }
+    }
+
+    input.progress?.(`Deleting ${matched.length} DNS record${matched.length === 1 ? '' : 's'}`)
+    const plan: DnsChangePlan = {
+      changes: matched.map((record) => ({ action: 'delete', existing: record })),
+      conflicts: [],
+      desired: [],
+      existing,
+      zone,
+    }
+    yield* provider.applyChanges(zone, plan, { force: true })
+    const reconciliation = yield* reconcileRecordRemoval({
+      progress: input.progress,
+      provider,
+      selector,
+      timeoutMs: (input.reconcileTimeoutSeconds ?? 30) * 1000,
+      zone,
+    })
+
     return {
       ...base,
-      dryRun: true,
-      reconciled: false,
-      reconciliationAttempts: 0,
-      removed: 0,
+      dryRun: false,
+      reconciled: reconciliation.reconciled,
+      reconciliationAttempts: reconciliation.attempts,
+      removed: matched.length,
     }
-  }
-
-  if (matched.length === 0) {
-    return { ...base, dryRun: false, reconciled: true, reconciliationAttempts: 1, removed: 0 }
-  }
-
-  input.progress?.(`Deleting ${matched.length} DNS record${matched.length === 1 ? '' : 's'}`)
-  const plan: DnsChangePlan = {
-    changes: matched.map((record) => ({ action: 'delete', existing: record })),
-    conflicts: [],
-    desired: [],
-    existing,
-    zone,
-  }
-  await provider.applyChanges(zone, plan, { force: true })
-  const reconciliation = await reconcileRecordRemoval({
-    progress: input.progress,
-    provider,
-    selector,
-    timeoutMs: (input.reconcileTimeoutSeconds ?? 30) * 1000,
-    zone,
   })
-
-  return {
-    ...base,
-    dryRun: false,
-    reconciled: reconciliation.reconciled,
-    reconciliationAttempts: reconciliation.attempts,
-    removed: matched.length,
-  }
 }

@@ -1,3 +1,6 @@
+import { Effect } from 'effect'
+
+import { type DoomainEffect, trySync } from '../../effect.js'
 import { normalizeDomain } from '../../validate.js'
 import { createProviderHttpClient, type ProviderHttpClient } from '../core/http.js'
 import { assertNoConflicts, planDnsChanges } from '../core/planner.js'
@@ -150,103 +153,113 @@ export class HostingerProvider implements DnsProvider {
       headers: { Authorization: `Bearer ${context.credentials.apiToken}` },
       providerId: this.id,
       signal: context.signal,
+      transportErrorCode: context.transportErrorCode,
     })
   }
 
-  async verifyCredentials(): Promise<ProviderHealth> {
-    await this.listZones()
-    return { ok: true }
+  verifyCredentials(): DoomainEffect<ProviderHealth> {
+    return this.listZones().pipe(Effect.as({ ok: true }))
   }
 
-  async listZones(): Promise<DnsZone[]> {
-    const domains = await this.http.request<HostingerDomain[]>('/api/domains/v1/portfolio')
-    return domains.flatMap((domain) => {
-      const zone = toZone(domain)
-      return zone ? [zone] : []
+  listZones(): DoomainEffect<DnsZone[]> {
+    return this.http.request<HostingerDomain[]>('/api/domains/v1/portfolio').pipe(
+      Effect.map((domains) =>
+        domains.flatMap((domain) => {
+          const zone = toZone(domain)
+          return zone ? [zone] : []
+        }),
+      ),
+    )
+  }
+
+  getZone(domain: string): DoomainEffect<DnsZone | null> {
+    return Effect.gen(this, function* () {
+      const normalized = yield* trySync(() => normalizeDomain(domain), 'INVALID_INPUT')
+      const zones = yield* this.listZones()
+      return zones.find((zone) => zone.name === normalized) ?? null
     })
   }
 
-  async getZone(domain: string): Promise<DnsZone | null> {
-    const normalized = normalizeDomain(domain)
-    const zones = await this.listZones()
-    return zones.find((zone) => zone.name === normalized) ?? null
+  listRecords(zone: DnsZone): DoomainEffect<DnsRecord[]> {
+    return this.http
+      .request<HostingerZoneRecord[]>(`/api/dns/v1/zones/${encodeURIComponent(zone.name)}`)
+      .pipe(Effect.map((records) => records.flatMap((record) => toDnsRecords(record, zone))))
   }
 
-  async listRecords(zone: DnsZone): Promise<DnsRecord[]> {
-    const records = await this.http.request<HostingerZoneRecord[]>(`/api/dns/v1/zones/${encodeURIComponent(zone.name)}`)
-    return records.flatMap((record) => toDnsRecords(record, zone))
+  planChanges(zone: DnsZone, desired: DnsRecordInput[], opts: { force?: boolean } = {}): DoomainEffect<DnsChangePlan> {
+    return this.listRecords(zone).pipe(
+      Effect.map((existing) =>
+        collapseRecordSetWrites(planDnsChanges({ desired, existing, force: opts.force, providerId: this.id, zone })),
+      ),
+    )
   }
 
-  async planChanges(zone: DnsZone, desired: DnsRecordInput[], opts: { force?: boolean } = {}): Promise<DnsChangePlan> {
-    const plan = planDnsChanges({
-      desired,
-      existing: await this.listRecords(zone),
-      force: opts.force,
-      providerId: this.id,
-      zone,
-    })
-    return collapseRecordSetWrites(plan)
-  }
+  applyChanges(zone: DnsZone, plan: DnsChangePlan): DoomainEffect<{ applied: DnsChange[]; skipped: DnsRecordInput[] }> {
+    return Effect.gen(this, function* () {
+      yield* assertNoConflicts(this.id, plan)
+      const applied: DnsChange[] = []
+      const skipped: DnsRecordInput[] = []
 
-  async applyChanges(zone: DnsZone, plan: DnsChangePlan): Promise<{ applied: DnsChange[]; skipped: DnsRecordInput[] }> {
-    assertNoConflicts(this.id, plan)
-    const applied: DnsChange[] = []
-    const skipped: DnsRecordInput[] = []
-
-    const deletionSets = new Map<string, Extract<DnsChange, { action: 'delete' }>['existing'][]>()
-    for (const change of plan.changes) {
-      if (change.action !== 'delete') continue
-      const key = `${change.existing.type}\0${change.existing.name}`
-      const records = deletionSets.get(key) ?? []
-      records.push(change.existing)
-      deletionSets.set(key, records)
-    }
-
-    for (const deleted of deletionSets.values()) {
-      const sample = deleted[0]
-      const source = sample.metadata?.hostinger as HostingerZoneRecord | undefined
-      const deletedValues = new Set(deleted.map((record) => record.value))
-      const sourceRecords = source?.records?.filter(
-        (record) => record.is_disabled || !record.content || !deletedValues.has(record.content),
-      )
-      if (source && sourceRecords && sourceRecords.length > 0) {
-        await this.putHostingerRecordSets(zone, [{ ...source, records: sourceRecords }], true)
-      } else {
-        const remaining = plan.existing.filter((record) => sameRecordSet(record, sample) && !deleted.includes(record))
-        if (remaining.length > 0) await this.putRecords(zone, remaining, true)
-        else await this.deleteRecord(zone, sample)
-      }
-      applied.push(...plan.changes.filter((change) => change.action === 'delete' && deleted.includes(change.existing)))
-    }
-
-    for (const change of plan.changes) {
-      if (change.action === 'skip') {
-        skipped.push(change.record)
-        continue
+      const deletionSets = new Map<string, Extract<DnsChange, { action: 'delete' }>['existing'][]>()
+      for (const change of plan.changes) {
+        if (change.action !== 'delete') continue
+        const key = `${change.existing.type}\0${change.existing.name}`
+        const records = deletionSets.get(key) ?? []
+        records.push(change.existing)
+        deletionSets.set(key, records)
       }
 
-      if (change.action === 'delete') continue
-      await this.putRecords(zone, [change.record], change.action === 'update')
+      for (const deleted of deletionSets.values()) {
+        const sample = deleted[0]
+        const source = sample.metadata?.hostinger as HostingerZoneRecord | undefined
+        const deletedValues = new Set(deleted.map((record) => record.value))
+        const sourceRecords = source?.records?.filter(
+          (record) => record.is_disabled || !record.content || !deletedValues.has(record.content),
+        )
+        if (source && sourceRecords && sourceRecords.length > 0) {
+          yield* this.putHostingerRecordSets(zone, [{ ...source, records: sourceRecords }], true)
+        } else {
+          const remaining = plan.existing.filter((record) => sameRecordSet(record, sample) && !deleted.includes(record))
+          if (remaining.length > 0) yield* this.putRecords(zone, remaining, true)
+          else yield* this.deleteRecord(zone, sample)
+        }
+        applied.push(
+          ...plan.changes.filter((change) => change.action === 'delete' && deleted.includes(change.existing)),
+        )
+      }
 
-      applied.push(change)
-    }
+      for (const change of plan.changes) {
+        if (change.action === 'skip') {
+          skipped.push(change.record)
+          continue
+        }
 
-    return { applied, skipped }
-  }
+        if (change.action === 'delete') continue
+        yield* this.putRecords(zone, [change.record], change.action === 'update')
 
-  async upsertRecord(zone: DnsZone, record: DnsRecordInput): Promise<DnsRecord> {
-    await this.putRecords(zone, [record], true)
-    return { ...record, ttl: record.ttl ?? capabilities.defaultTtl }
-  }
+        applied.push(change)
+      }
 
-  async deleteRecord(zone: DnsZone, record: DnsRecord): Promise<void> {
-    await this.http.request(`/api/dns/v1/zones/${encodeURIComponent(zone.name)}`, {
-      body: { filters: [deleteFilter(record)] },
-      method: 'DELETE',
+      return { applied, skipped }
     })
   }
 
-  private async putRecords(zone: DnsZone, records: DnsRecordInput[], overwrite: boolean): Promise<void> {
+  upsertRecord(zone: DnsZone, record: DnsRecordInput): DoomainEffect<DnsRecord> {
+    return this.putRecords(zone, [record], true).pipe(
+      Effect.as({ ...record, ttl: record.ttl ?? capabilities.defaultTtl }),
+    )
+  }
+
+  deleteRecord(zone: DnsZone, record: DnsRecord): DoomainEffect<void> {
+    return this.http
+      .request(`/api/dns/v1/zones/${encodeURIComponent(zone.name)}`, {
+        body: { filters: [deleteFilter(record)] },
+        method: 'DELETE',
+      })
+      .pipe(Effect.asVoid)
+  }
+
+  private putRecords(zone: DnsZone, records: DnsRecordInput[], overwrite: boolean): DoomainEffect<void> {
     const recordSets = new Map<string, DnsRecordInput[]>()
     for (const record of records) {
       const key = `${record.type}\0${record.name}`
@@ -254,18 +267,20 @@ export class HostingerProvider implements DnsProvider {
       values.push(record)
       recordSets.set(key, values)
     }
-    await this.putHostingerRecordSets(zone, [...recordSets.values()].map(toHostingerRecordSet), overwrite)
+    return this.putHostingerRecordSets(zone, [...recordSets.values()].map(toHostingerRecordSet), overwrite)
   }
 
-  private async putHostingerRecordSets(
+  private putHostingerRecordSets(
     zone: DnsZone,
     recordSets: HostingerZoneRecord[],
     overwrite: boolean,
-  ): Promise<void> {
-    await this.http.request(`/api/dns/v1/zones/${encodeURIComponent(zone.name)}`, {
-      body: { overwrite, zone: recordSets },
-      method: 'PUT',
-    })
+  ): DoomainEffect<void> {
+    return this.http
+      .request(`/api/dns/v1/zones/${encodeURIComponent(zone.name)}`, {
+        body: { overwrite, zone: recordSets },
+        method: 'PUT',
+      })
+      .pipe(Effect.asVoid)
   }
 }
 

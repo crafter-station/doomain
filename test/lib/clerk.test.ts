@@ -4,9 +4,26 @@ import { join } from 'node:path'
 
 import { expect } from 'chai'
 
-import { createClerkPlatformClient, resolveClerkPlatformConfig } from '../../src/lib/clerk.js'
-import { saveConfig } from '../../src/lib/config.js'
+import {
+  createClerkPlatformClient as createClerkEffectClient,
+  resolveClerkPlatformConfig as resolveClerkPlatformConfigEffect,
+} from '../../src/lib/clerk.js'
+import { saveConfig as saveConfigEffect } from '../../src/lib/config.js'
 import { DoomainError } from '../../src/lib/errors.js'
+import { runEffect } from '../helpers/effect.js'
+
+const saveConfig = (...args: Parameters<typeof saveConfigEffect>) => runEffect(saveConfigEffect(...args))
+const resolveClerkPlatformConfig = (...args: Parameters<typeof resolveClerkPlatformConfigEffect>) =>
+  runEffect(resolveClerkPlatformConfigEffect(...args))
+const createClerkPlatformClient = (...args: Parameters<typeof createClerkEffectClient>) => {
+  const client = createClerkEffectClient(...args)
+  return {
+    createProductionInstance: (...methodArgs: Parameters<typeof client.createProductionInstance>) =>
+      runEffect(client.createProductionInstance(...methodArgs)),
+    fetchApplication: (...methodArgs: Parameters<typeof client.fetchApplication>) =>
+      runEffect(client.fetchApplication(...methodArgs)),
+  }
+}
 
 describe('clerk platform client', () => {
   const originalFetch = globalThis.fetch
@@ -81,5 +98,57 @@ describe('clerk platform client', () => {
     expect(error).to.be.instanceOf(DoomainError)
     expect((error as DoomainError).code).to.equal('CLERK_AUTH_FAILED')
     expect((error as Error).message).to.include('CLERK_PLATFORM_API_KEY')
+  })
+
+  it('preserves the Clerk auth error for a non-JSON authorization response', async () => {
+    globalThis.fetch = (async () => new Response('Forbidden', { status: 403 })) as typeof fetch
+
+    let error: unknown
+    try {
+      await createClerkPlatformClient({ platformApiKey: 'ak_bad' }).fetchApplication('app_123')
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(error).to.be.instanceOf(DoomainError)
+    expect((error as DoomainError).code).to.equal('CLERK_AUTH_FAILED')
+    expect((error as Error).message).to.include('Clerk API error (403)')
+  })
+
+  it('uses the caller transport error code for network failures', async () => {
+    globalThis.fetch = (async () => {
+      throw new Error('network unavailable')
+    }) as typeof fetch
+
+    let error: unknown
+    try {
+      await createClerkPlatformClient(
+        { platformApiKey: 'ak_test' },
+        { transportErrorCode: 'CLERK_AUTH_FAILED' },
+      ).fetchApplication('app_123')
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(error).to.be.instanceOf(DoomainError)
+    expect((error as DoomainError).code).to.equal('CLERK_AUTH_FAILED')
+    expect((error as Error).message).to.equal('network unavailable')
+  })
+
+  it('uses the caller transport error code for malformed successful responses', async () => {
+    globalThis.fetch = (async () => new Response('not json', { status: 200 })) as typeof fetch
+
+    let error: unknown
+    try {
+      await createClerkPlatformClient(
+        { platformApiKey: 'ak_test' },
+        { transportErrorCode: 'CLERK_AUTH_FAILED' },
+      ).fetchApplication('app_123')
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(error).to.be.instanceOf(DoomainError)
+    expect((error as DoomainError).code).to.equal('CLERK_AUTH_FAILED')
   })
 })

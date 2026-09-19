@@ -2,6 +2,7 @@ import * as p from '@clack/prompts'
 import { Args, Command, Flags } from '@oclif/core'
 
 import { getConfigPath, loadConfig, maskSecret, updateConfig } from '../../lib/config.js'
+import { runDoomainEffect } from '../../lib/effect.js'
 import { accountFlag, jsonFlag } from '../../lib/flags.js'
 import { createOutput, outputError } from '../../lib/output.js'
 import {
@@ -14,6 +15,7 @@ import {
 } from '../../lib/providers/core/config.js'
 import { getProviderDefinition, listProviderDefinitions } from '../../lib/providers/registry.js'
 import type { CredentialDefinition, DnsProviderDefinition } from '../../lib/providers/types.js'
+import { fetchPublicIp } from '../../lib/public-ip.js'
 
 function requireString(value: unknown, message: string): string {
   if (typeof value === 'string' && value.trim()) return value.trim()
@@ -35,22 +37,6 @@ function legacyFlagValue(flags: Record<string, unknown>, credential: CredentialD
   const key = credential.key.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`)
   const value = flags[key]
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
-}
-
-async function fetchPublicIp(): Promise<string | undefined> {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 2000)
-
-  try {
-    const response = await fetch('https://api.ipify.org', { signal: controller.signal })
-    if (!response.ok) return undefined
-    const ip = (await response.text()).trim()
-    return ip || undefined
-  } catch {
-    return undefined
-  } finally {
-    clearTimeout(timeout)
-  }
 }
 
 function credentialInitialValue(credential: CredentialDefinition, detectedPublicIp?: string): string | undefined {
@@ -108,7 +94,7 @@ async function confirmProviderAccountOverwrite(definition: DnsProviderDefinition
 }
 
 async function promptProvider(): Promise<DnsProviderDefinition | null> {
-  const config = await loadConfig()
+  const config = await runDoomainEffect(loadConfig())
   const selected = await p.select({
     message: 'Choose DNS provider',
     options: listProviderDefinitions().map((definition) => ({
@@ -169,7 +155,7 @@ export default class ProvidersConnect extends Command {
           : await promptProviderAccount()
       if (!account) return
       const isDefaultAccount = isDefaultProviderAccount(account)
-      const currentConfig = await loadConfig()
+      const currentConfig = await runDoomainEffect(loadConfig())
       if (!out.json && providerAccountHasCredentials(currentConfig, definition.id, account)) {
         const overwrite = await confirmProviderAccountOverwrite(definition, account)
         if (!overwrite) return
@@ -177,7 +163,8 @@ export default class ProvidersConnect extends Command {
 
       const passedCredentials = parseCredentialFlags(flags.credential)
       const credentials: Record<string, string> = {}
-      const detectedPublicIp = !out.json && usesClientIp(definition) ? await fetchPublicIp() : undefined
+      const detectedPublicIp =
+        !out.json && usesClientIp(definition) ? await runDoomainEffect(fetchPublicIp()) : undefined
 
       if (!out.json) showSetupGuide(definition, detectedPublicIp)
 
@@ -219,7 +206,15 @@ export default class ProvidersConnect extends Command {
       if (!flags['no-verify']) {
         spinner = out.json ? undefined : out.spinner()
         spinner?.start(`Verifying ${definition.displayName} credentials`)
-        const zones = await definition.create({ credentials, debug: process.env.DOOMAIN_DEBUG === '1' }).listZones()
+        const zones = await runDoomainEffect(
+          definition
+            .create({
+              credentials,
+              debug: process.env.DOOMAIN_DEBUG === '1',
+              transportErrorCode: 'MISSING_CREDENTIALS',
+            })
+            .listZones(),
+        )
         domainCount = zones.length
         spinner?.stop(
           `Verified ${definition.displayName} credentials and found ${domainCount} domain${domainCount === 1 ? '' : 's'}`,
@@ -241,14 +236,19 @@ export default class ProvidersConnect extends Command {
         setDefault = value
       }
 
-      await updateConfig((config) => ({
-        ...config,
-        defaults: setDefault ? { ...config.defaults, provider: definition.id } : config.defaults,
-        providers: {
-          ...config.providers,
-          [definition.id]: withProviderAccountCredentials(config.providers?.[definition.id], account, credentials),
-        },
-      }))
+      await runDoomainEffect(
+        updateConfig(
+          (config) => ({
+            ...config,
+            defaults: setDefault ? { ...config.defaults, provider: definition.id } : config.defaults,
+            providers: {
+              ...config.providers,
+              [definition.id]: withProviderAccountCredentials(config.providers?.[definition.id], account, credentials),
+            },
+          }),
+          'MISSING_CREDENTIALS',
+        ),
+      )
 
       out.result({
         account,

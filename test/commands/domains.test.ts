@@ -5,7 +5,10 @@ import { join } from 'node:path'
 import { runCommand } from '@oclif/test'
 import { expect } from 'chai'
 
-import { saveConfig } from '../../src/lib/config.js'
+import { saveConfig as saveConfigEffect } from '../../src/lib/config.js'
+import { runEffect } from '../helpers/effect.js'
+
+const saveConfig = (...args: Parameters<typeof saveConfigEffect>) => runEffect(saveConfigEffect(...args))
 
 function cloudflareResponse(result: unknown) {
   return { errors: [], messages: [], result, result_info: { page: 1, total_pages: 1 }, success: true }

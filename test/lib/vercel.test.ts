@@ -5,7 +5,17 @@ import { join } from 'node:path'
 import { expect } from 'chai'
 
 import { DoomainError } from '../../src/lib/errors.js'
-import { createVercelClient, resolveVercelConfig } from '../../src/lib/vercel.js'
+import { createVercelClient as createVercelEffectClient, resolveVercelConfig } from '../../src/lib/vercel.js'
+import { runEffect } from '../helpers/effect.js'
+
+const createVercelClient = (...args: Parameters<typeof createVercelEffectClient>) => {
+  const client = createVercelEffectClient(...args)
+  return {
+    addDomainToProject: (...methodArgs: Parameters<typeof client.addDomainToProject>) =>
+      runEffect(client.addDomainToProject(...methodArgs)),
+    listTeams: (...methodArgs: Parameters<typeof client.listTeams>) => runEffect(client.listTeams(...methodArgs)),
+  }
+}
 
 function jsonResponse(body: unknown): Response {
   return { json: async () => body, ok: true, status: 200 } as Response
@@ -66,7 +76,7 @@ describe('vercel client', () => {
       mkdirSync(authDir, { recursive: true })
       writeFileSync(join(authDir, 'auth.json'), JSON.stringify({ token: 'cli_token' }))
 
-      const config = await resolveVercelConfig()
+      const config = await runEffect(resolveVercelConfig())
       expect(config.token).to.equal('cli_token')
       expect(config.teamId).to.equal(undefined)
     } finally {
@@ -84,6 +94,46 @@ describe('vercel client', () => {
       expect(error).to.be.instanceOf(DoomainError)
       expect((error as DoomainError).code).to.equal('VERCEL_AUTH_FAILED')
       expect((error as Error).message).to.include('Run `vercel login` again')
+    }
+  })
+
+  it('uses the caller transport error code for network failures', async () => {
+    globalThis.fetch = (async () => {
+      throw new Error('network unavailable')
+    }) as typeof fetch
+
+    try {
+      await createVercelClient({ token: 'vercel_token' }, { transportErrorCode: 'PROJECT_NOT_FOUND' }).listTeams()
+      throw new Error('Expected listTeams to fail')
+    } catch (error) {
+      expect(error).to.be.instanceOf(DoomainError)
+      expect((error as DoomainError).code).to.equal('PROJECT_NOT_FOUND')
+      expect((error as Error).message).to.equal('network unavailable')
+    }
+  })
+
+  it('uses the caller transport error code for malformed successful responses', async () => {
+    globalThis.fetch = (async () => new Response('not json', { status: 200 })) as typeof fetch
+
+    try {
+      await createVercelClient({ token: 'vercel_token' }, { transportErrorCode: 'PROJECT_NOT_FOUND' }).listTeams()
+      throw new Error('Expected listTeams to fail')
+    } catch (error) {
+      expect(error).to.be.instanceOf(DoomainError)
+      expect((error as DoomainError).code).to.equal('PROJECT_NOT_FOUND')
+    }
+  })
+
+  it('uses the caller transport error code for invalid response shapes', async () => {
+    globalThis.fetch = (async () => jsonResponse({})) as typeof fetch
+
+    try {
+      await createVercelClient({ token: 'vercel_token' }, { transportErrorCode: 'PROJECT_NOT_FOUND' }).listTeams()
+      throw new Error('Expected listTeams to fail')
+    } catch (error) {
+      expect(error).to.be.instanceOf(DoomainError)
+      expect((error as DoomainError).code).to.equal('PROJECT_NOT_FOUND')
+      expect((error as Error).message).to.equal('Vercel returned an invalid teams response.')
     }
   })
 

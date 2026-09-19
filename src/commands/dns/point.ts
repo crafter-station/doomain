@@ -1,6 +1,7 @@
 import * as p from '@clack/prompts'
 import { Args, Command, Flags } from '@oclif/core'
 import { normalizeDnsValue } from '../../lib/dns-records.js'
+import { runDoomainEffect } from '../../lib/effect.js'
 import { accountFlag, jsonFlag, providerFlag } from '../../lib/flags.js'
 import type { DnsOverrideWarning } from '../../lib/link-domain.js'
 import { createOutput, outputError } from '../../lib/output.js'
@@ -118,28 +119,33 @@ export default class DnsPoint extends Command {
         spinner.start(`Pointing ${args.domain}`)
       }
 
-      const result = await pointDomain({
-        account: flags.account,
-        confirmDnsOverride: out.json
-          ? undefined
-          : async (warning) => {
-              spinner?.stop('Existing DNS target found')
-              p.note(conflictNote(warning), 'DNS already points elsewhere')
-              const confirmed = await p.confirm({ message: `Override DNS for ${warning.domain}?`, initialValue: false })
-              if (confirmed === true) spinner?.start(`Pointing ${warning.domain}`)
-              return confirmed === true
-            },
-        domain: args.domain,
-        dryRun: flags['dry-run'],
-        force: flags.force,
-        progress: out.json ? undefined : (message) => spinner?.message(message),
-        provider: flags.provider,
-        recordType: flags.type as PointRecordType | undefined,
-        target: flags.target,
-        timeoutSeconds: flags.timeout,
-        ttl: flags.ttl,
-        wait: flags.wait,
-      })
+      const result = await runDoomainEffect(
+        pointDomain({
+          account: flags.account,
+          confirmDnsOverride: out.json
+            ? undefined
+            : async (warning) => {
+                spinner?.stop('Existing DNS target found')
+                p.note(conflictNote(warning), 'DNS already points elsewhere')
+                const confirmed = await p.confirm({
+                  message: `Override DNS for ${warning.domain}?`,
+                  initialValue: false,
+                })
+                if (confirmed === true) spinner?.start(`Pointing ${warning.domain}`)
+                return confirmed === true
+              },
+          domain: args.domain,
+          dryRun: flags['dry-run'],
+          force: flags.force,
+          progress: out.json ? undefined : (message) => spinner?.message(message),
+          provider: flags.provider,
+          recordType: flags.type as PointRecordType | undefined,
+          target: flags.target,
+          timeoutSeconds: flags.timeout,
+          ttl: flags.ttl,
+          wait: flags.wait,
+        }),
+      )
 
       if (flags['dry-run']) {
         out.result(result)

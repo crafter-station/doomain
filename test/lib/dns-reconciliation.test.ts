@@ -1,14 +1,31 @@
 import { strict as assert } from 'node:assert'
+import { Effect } from 'effect'
 import { describe, it } from 'mocha'
 
-import { reconcileDesiredRecord, reconcileRecordRemoval } from '../../src/lib/dns-reconciliation.js'
+import {
+  reconcileDesiredRecord as reconcileDesiredRecordEffect,
+  reconcileRecordRemoval as reconcileRecordRemovalEffect,
+} from '../../src/lib/dns-reconciliation.js'
 import { DoomainError } from '../../src/lib/errors.js'
 import { planDnsChanges } from '../../src/lib/providers/core/planner.js'
-import type { DnsProvider, DnsRecord, DnsRecordInput, DnsZone } from '../../src/lib/providers/types.js'
+import type { DnsRecord, DnsRecordInput, DnsZone } from '../../src/lib/providers/types.js'
+import { effectProvider, type PromiseDnsProvider, runEffect } from '../helpers/effect.js'
+
+type DesiredInput = Omit<Parameters<typeof reconcileDesiredRecordEffect>[0], 'provider'> & {
+  provider: PromiseDnsProvider
+}
+type RemovalInput = Omit<Parameters<typeof reconcileRecordRemovalEffect>[0], 'provider'> & {
+  provider: PromiseDnsProvider
+}
+
+const reconcileDesiredRecord = (input: DesiredInput) =>
+  runEffect(reconcileDesiredRecordEffect({ ...input, provider: effectProvider(input.provider) }))
+const reconcileRecordRemoval = (input: RemovalInput) =>
+  runEffect(reconcileRecordRemovalEffect({ ...input, provider: effectProvider(input.provider) }))
 
 const zone: DnsZone = { id: 'zone-1', name: 'example.com' }
 
-function providerFixture(records: DnsRecord[]): DnsProvider {
+function providerFixture(records: DnsRecord[]): PromiseDnsProvider {
   return {
     id: 'test',
     name: 'Test DNS',
@@ -46,11 +63,12 @@ describe('DNS reconciliation', () => {
     const result = await reconcileDesiredRecord({
       dependencies: {
         now: () => now,
-        sleep: async (milliseconds) => {
-          now += milliseconds
-          polls += 1
-          records = polls === 1 ? [] : [{ ...desired }]
-        },
+        sleep: (milliseconds) =>
+          Effect.sync(() => {
+            now += milliseconds
+            polls += 1
+            records = polls === 1 ? [] : [{ ...desired }]
+          }),
       },
       desired,
       intervalMs: 1,
@@ -79,10 +97,11 @@ describe('DNS reconciliation', () => {
     const result = await reconcileRecordRemoval({
       dependencies: {
         now: () => now,
-        sleep: async (milliseconds) => {
-          now += milliseconds
-          records = []
-        },
+        sleep: (milliseconds) =>
+          Effect.sync(() => {
+            now += milliseconds
+            records = []
+          }),
       },
       intervalMs: 1,
       provider,
@@ -110,9 +129,10 @@ describe('DNS reconciliation', () => {
       reconcileRecordRemoval({
         dependencies: {
           now: () => now,
-          sleep: async (milliseconds) => {
-            now += milliseconds
-          },
+          sleep: (milliseconds) =>
+            Effect.sync(() => {
+              now += milliseconds
+            }),
         },
         intervalMs: 1,
         provider,
@@ -139,9 +159,10 @@ describe('DNS reconciliation', () => {
       reconcileDesiredRecord({
         dependencies: {
           now: () => now,
-          sleep: async (milliseconds) => {
-            now += milliseconds
-          },
+          sleep: (milliseconds) =>
+            Effect.sync(() => {
+              now += milliseconds
+            }),
         },
         desired,
         intervalMs: 1,
@@ -168,9 +189,10 @@ describe('DNS reconciliation', () => {
       reconcileDesiredRecord({
         dependencies: {
           now: () => now,
-          sleep: async (milliseconds) => {
-            now += milliseconds
-          },
+          sleep: (milliseconds) =>
+            Effect.sync(() => {
+              now += milliseconds
+            }),
         },
         desired,
         intervalMs: 1,
@@ -197,9 +219,10 @@ describe('DNS reconciliation', () => {
       reconcileDesiredRecord({
         dependencies: {
           now: () => now,
-          sleep: async (milliseconds) => {
-            now += milliseconds
-          },
+          sleep: (milliseconds) =>
+            Effect.sync(() => {
+              now += milliseconds
+            }),
         },
         desired,
         intervalMs: 1,

@@ -3,9 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { expect } from 'chai'
+import { Effect } from 'effect'
 
 import { DoomainError } from '../../src/lib/errors.js'
 import { installLatestVersion, npmInstallCommand } from '../../src/lib/self-update.js'
+import { runEffect } from '../helpers/effect.js'
 
 describe('self update', () => {
   let directory: string
@@ -25,19 +27,22 @@ describe('self update', () => {
   it('uses npm with a fresh cache and forces an online latest install', async () => {
     let cacheDirectory = ''
 
-    const result = await installLatestVersion({
-      cacheRoot: directory,
-      platform: 'linux',
-      runner: async (command, args, options) => {
-        expect(command).to.equal('npm')
-        expect(args).to.include.members(['doomain@latest', '--prefer-online', '--offline=false'])
-        expect(args).not.to.include('--force')
-        cacheDirectory = cacheDirectoryFrom(options)
-        expect(cacheDirectory).not.to.equal('')
-        expect(existsSync(cacheDirectory)).to.equal(true)
-        return { exitCode: 0, stderr: '', stdout: 'updated' }
-      },
-    })
+    const result = await runEffect(
+      installLatestVersion({
+        cacheRoot: directory,
+        platform: 'linux',
+        runner: (command, args, options) =>
+          Effect.sync(() => {
+            expect(command).to.equal('npm')
+            expect(args).to.include.members(['doomain@latest', '--prefer-online', '--offline=false'])
+            expect(args).not.to.include('--force')
+            cacheDirectory = cacheDirectoryFrom(options)
+            expect(cacheDirectory).not.to.equal('')
+            expect(existsSync(cacheDirectory)).to.equal(true)
+            return { exitCode: 0, stderr: '', stdout: 'updated' }
+          }),
+      }),
+    )
 
     expect(result).to.deep.equal({
       package: 'doomain',
@@ -72,13 +77,16 @@ describe('self update', () => {
     let cacheDirectory = ''
 
     try {
-      await installLatestVersion({
-        cacheRoot: directory,
-        runner: async (_command, _args, options) => {
-          cacheDirectory = cacheDirectoryFrom(options)
-          return { exitCode: 1, stderr: 'registry unavailable', stdout: '' }
-        },
-      })
+      await runEffect(
+        installLatestVersion({
+          cacheRoot: directory,
+          runner: (_command, _args, options) =>
+            Effect.sync(() => {
+              cacheDirectory = cacheDirectoryFrom(options)
+              return { exitCode: 1, stderr: 'registry unavailable', stdout: '' }
+            }),
+        }),
+      )
       expect.fail('Expected installLatestVersion to fail')
     } catch (error) {
       expect(error).to.be.instanceOf(DoomainError)

@@ -3,5 +3,6 @@ export {
   type DomainProviderResult,
   type FindDomainProviderInput,
   findDomainProvider,
+  findDomainProviderEffect,
   type ProviderSearchWarning,
 } from './lib/domain-provider.js'

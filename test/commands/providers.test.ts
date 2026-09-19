@@ -5,8 +5,11 @@ import { join } from 'node:path'
 import { runCommand } from '@oclif/test'
 import { expect } from 'chai'
 
-import { loadConfig, saveConfig } from '../../src/lib/config.js'
+import { loadConfig, saveConfig as saveConfigEffect } from '../../src/lib/config.js'
 import { providerAccountHasCredentials, withProviderAccountCredentials } from '../../src/lib/providers/core/config.js'
+import { runEffect } from '../helpers/effect.js'
+
+const saveConfig = (...args: Parameters<typeof saveConfigEffect>) => runEffect(saveConfigEffect(...args))
 
 describe('providers', () => {
   const originalFetch = globalThis.fetch
@@ -135,7 +138,7 @@ describe('providers', () => {
 
     const { stdout } = await runCommand('providers disconnect namecheap --json')
     const result = JSON.parse(stdout) as { data: { provider: string; removed: boolean }; ok: boolean }
-    const config = await loadConfig()
+    const config = await runEffect(loadConfig())
 
     expect(result.ok).to.equal(true)
     expect(result.data.provider).to.equal('namecheap')
@@ -160,7 +163,7 @@ describe('providers', () => {
       data: { account: string; isDefaultAccount: boolean; provider: string }
       ok: boolean
     }
-    const config = await loadConfig()
+    const config = await runEffect(loadConfig())
 
     expect(result.ok).to.equal(true)
     expect(result.data.provider).to.equal('spaceship')
@@ -181,7 +184,7 @@ describe('providers', () => {
       'providers connect spaceship --credential apiKey=default_key --credential apiSecret=default_secret --no-verify --json',
     )
     const result = JSON.parse(stdout) as { data: { account: string; isDefaultAccount: boolean }; ok: boolean }
-    const config = await loadConfig()
+    const config = await runEffect(loadConfig())
 
     expect(result.ok).to.equal(true)
     expect(result.data.account).to.equal('default')
@@ -258,6 +261,16 @@ describe('providers', () => {
     expect(result.data.account).to.equal('work')
   })
 
+  it('preserves the provider-not-found JSON error contract', async () => {
+    const { stdout } = await runCommand('providers verify unsupported --json')
+    const result = JSON.parse(stdout) as { error: { code: string; message: string }; ok: boolean }
+
+    expect(result).to.deep.equal({
+      error: { code: 'PROVIDER_NOT_FOUND', message: 'Unsupported DNS provider: unsupported' },
+      ok: false,
+    })
+  })
+
   it('uses provider environment credentials when verifying a named account', async () => {
     process.env.SPACESHIP_API_KEY = 'env_key'
     process.env.SPACESHIP_API_SECRET = 'env_secret'
@@ -292,7 +305,7 @@ describe('providers', () => {
 
     const { stdout } = await runCommand('providers disconnect spaceship --account work --json')
     const result = JSON.parse(stdout) as { data: { account: string; removed: boolean }; ok: boolean }
-    const config = await loadConfig()
+    const config = await runEffect(loadConfig())
 
     expect(result.ok).to.equal(true)
     expect(result.data.account).to.equal('work')
@@ -317,7 +330,7 @@ describe('providers', () => {
 
     const { stdout } = await runCommand('providers disconnect spaceship --account default --json')
     const result = JSON.parse(stdout) as { data: { account: string; removed: boolean }; ok: boolean }
-    const config = await loadConfig()
+    const config = await runEffect(loadConfig())
 
     expect(result.ok).to.equal(true)
     expect(result.data.account).to.equal('default')
@@ -343,7 +356,7 @@ describe('providers', () => {
 
     const { stdout } = await runCommand('providers disconnect spaceship --json')
     const result = JSON.parse(stdout) as { data: { removed: boolean }; ok: boolean }
-    const config = await loadConfig()
+    const config = await runEffect(loadConfig())
 
     expect(result.ok).to.equal(true)
     expect(result.data.removed).to.equal(true)

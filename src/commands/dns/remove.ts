@@ -1,6 +1,6 @@
 import * as p from '@clack/prompts'
 import { Args, Command, Flags } from '@oclif/core'
-
+import { runDoomainEffect } from '../../lib/effect.js'
 import { accountFlag, jsonFlag, providerFlag } from '../../lib/flags.js'
 import { createOutput, outputError } from '../../lib/output.js'
 import type { DnsRecord, DnsRecordType } from '../../lib/providers/types.js'
@@ -45,28 +45,30 @@ export default class DnsRemove extends Command {
 
     try {
       spinner?.start(`Inspecting ${args.domain}`)
-      const result = await removeDomain({
-        account: flags.account,
-        allMatching: flags['all-matching'],
-        confirmMultiple: out.json
-          ? undefined
-          : async (records) => {
-              spinner?.stop('Multiple matching records found')
-              p.note(recordLines(records), 'Records selected for deletion')
-              const confirmed = await p.confirm({
-                initialValue: false,
-                message: `Delete all ${records.length} matching records?`,
-              })
-              if (confirmed === true) spinner?.start(`Deleting records from ${args.domain}`)
-              return confirmed === true
-            },
-        domain: args.domain,
-        dryRun: flags['dry-run'],
-        progress: out.json ? undefined : (message) => spinner?.message(message),
-        provider: flags.provider,
-        recordType: flags.type as DnsRecordType,
-        value: flags.value,
-      })
+      const result = await runDoomainEffect(
+        removeDomain({
+          account: flags.account,
+          allMatching: flags['all-matching'],
+          confirmMultiple: out.json
+            ? undefined
+            : async (records) => {
+                spinner?.stop('Multiple matching records found')
+                p.note(recordLines(records), 'Records selected for deletion')
+                const confirmed = await p.confirm({
+                  initialValue: false,
+                  message: `Delete all ${records.length} matching records?`,
+                })
+                if (confirmed === true) spinner?.start(`Deleting records from ${args.domain}`)
+                return confirmed === true
+              },
+          domain: args.domain,
+          dryRun: flags['dry-run'],
+          progress: out.json ? undefined : (message) => spinner?.message(message),
+          provider: flags.provider,
+          recordType: flags.type as DnsRecordType,
+          value: flags.value,
+        }),
+      )
 
       spinner?.stop(result.removed === 0 ? 'No matching records found' : 'DNS records removed')
       out.result(result)

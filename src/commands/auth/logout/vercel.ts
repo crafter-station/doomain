@@ -1,6 +1,7 @@
 import { Command } from '@oclif/core'
 
 import { getConfigPath, updateConfig } from '../../../lib/config.js'
+import { runDoomainEffect } from '../../../lib/effect.js'
 import { jsonFlag } from '../../../lib/flags.js'
 import { createOutput, outputError } from '../../../lib/output.js'
 
@@ -24,11 +25,13 @@ export default class AuthLogoutVercel extends Command {
     try {
       let removed = false
 
-      await updateConfig((config) => {
-        removed = config.vercel !== undefined
-        const { vercel: _vercel, ...next } = config
-        return next
-      })
+      await runDoomainEffect(
+        updateConfig((config) => {
+          removed = config.vercel !== undefined
+          const { vercel: _vercel, ...next } = config
+          return next
+        }, 'MISSING_CREDENTIALS'),
+      )
 
       const overrides = envOverrides()
       out.result({ configPath: getConfigPath(), environmentOverrides: overrides, removed, service: 'vercel' })

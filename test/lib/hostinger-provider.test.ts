@@ -1,6 +1,7 @@
 import { expect } from 'chai'
 
 import { createProvider } from '../../src/lib/providers/registry.js'
+import { promiseProvider, runEffect } from '../helpers/effect.js'
 
 function jsonResponse(body: unknown): Response {
   return { json: async () => body, ok: true, status: 200 } as Response
@@ -31,7 +32,7 @@ describe('hostinger provider', () => {
       ])
     }) as typeof fetch
 
-    const provider = await createProvider('hostinger')
+    const provider = promiseProvider(await runEffect(createProvider('hostinger')))
     const zones = await provider.listZones()
 
     expect(authorizations).to.deep.equal(['Bearer hostinger_token'])
@@ -58,7 +59,7 @@ describe('hostinger provider', () => {
         { name: 'alias', records: [{ content: 'unsupported.example.com' }], ttl: 3600, type: 'ALIAS' },
       ])) as typeof fetch
 
-    const provider = await createProvider('hostinger')
+    const provider = promiseProvider(await runEffect(createProvider('hostinger')))
     const records = await provider.listRecords({ id: 'example.com', name: 'example.com' })
 
     expect(records).to.deep.equal([
@@ -112,7 +113,7 @@ describe('hostinger provider', () => {
       return jsonResponse([])
     }) as typeof fetch
 
-    const provider = await createProvider('hostinger')
+    const provider = promiseProvider(await runEffect(createProvider('hostinger')))
     const zone = { id: 'example.com', name: 'example.com' }
     const plan = await provider.planChanges(zone, [
       { name: 'app', ttl: 3600, type: 'CNAME', value: 'cname.vercel-dns.com' },
@@ -139,7 +140,7 @@ describe('hostinger provider', () => {
       )
     }) as typeof fetch
 
-    const provider = await createProvider('hostinger')
+    const provider = promiseProvider(await runEffect(createProvider('hostinger')))
     const zone = { id: 'example.com', name: 'example.com' }
     const plan = await provider.planChanges(
       zone,
@@ -174,7 +175,7 @@ describe('hostinger provider', () => {
       )
     }) as typeof fetch
 
-    const provider = await createProvider('hostinger')
+    const provider = promiseProvider(await runEffect(createProvider('hostinger')))
     const zone = { id: 'example.com', name: 'example.com' }
     const plan = await provider.planChanges(zone, [{ name: 'app', ttl: 300, type: 'A', value: '203.0.113.10' }], {
       force: true,
@@ -209,7 +210,7 @@ describe('hostinger provider', () => {
       )
     }) as typeof fetch
 
-    const provider = await createProvider('hostinger')
+    const provider = promiseProvider(await runEffect(createProvider('hostinger')))
     const zone = { id: 'example.com', name: 'example.com' }
     const desired = { name: 'app', ttl: 300, type: 'A' as const, value: '203.0.113.10' }
     const plan = await provider.planChanges(zone, [desired], { force: true })
@@ -231,7 +232,7 @@ describe('hostinger provider', () => {
       return jsonResponse({ message: 'Request accepted' })
     }) as typeof fetch
 
-    const provider = await createProvider('hostinger')
+    const provider = promiseProvider(await runEffect(createProvider('hostinger')))
     await provider.deleteRecord(
       { id: 'example.com', name: 'example.com' },
       { name: 'app', type: 'CNAME', value: 'old.example.com' },
@@ -249,7 +250,7 @@ describe('hostinger provider', () => {
       return jsonResponse({ message: 'Request accepted' })
     }) as typeof fetch
 
-    const provider = await createProvider('hostinger')
+    const provider = promiseProvider(await runEffect(createProvider('hostinger')))
     const zone = { id: 'example.com', name: 'example.com' }
     const removed = { name: 'app', ttl: 300, type: 'A' as const, value: '203.0.113.10' }
     const preserved = { name: 'app', ttl: 300, type: 'A' as const, value: '192.0.2.1' }
@@ -296,7 +297,7 @@ describe('hostinger provider', () => {
       )
     }) as typeof fetch
 
-    const provider = await createProvider('hostinger')
+    const provider = promiseProvider(await runEffect(createProvider('hostinger')))
     const zone = { id: 'example.com', name: 'example.com' }
     const records = await provider.listRecords(zone)
     await provider.applyChanges(zone, {

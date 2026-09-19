@@ -1,9 +1,20 @@
 import { strict as assert } from 'node:assert'
 import { describe, it } from 'mocha'
 
-import { classifyDnsPropagation } from '../../src/lib/dns-propagation.js'
+import { classifyDnsPropagation, observeDnsRecord } from '../../src/lib/dns-propagation.js'
+import { runEffect } from '../helpers/effect.js'
 
 describe('DNS propagation classification', () => {
+  it('preserves native resolver error codes in observations', async () => {
+    const [observation] = await runEffect(
+      observeDnsRecord('app.example.com', { type: 'A', value: '203.0.113.10' }, [
+        { kind: 'public', name: 'invalid', servers: ['not-an-ip-address'] },
+      ]),
+    )
+
+    assert.equal(observation?.errorCode, 'ERR_INVALID_IP_ADDRESS')
+  })
+
   it('does not call a failed system lookup a stale local cache', () => {
     assert.equal(
       classifyDnsPropagation([

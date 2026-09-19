@@ -1,6 +1,6 @@
 import * as p from '@clack/prompts'
 import { Args, Command, Flags } from '@oclif/core'
-
+import { runDoomainEffect } from '../lib/effect.js'
 import { accountFlag, apexFlag, domainFlag, jsonFlag, projectFlag, providerFlag, subdomainFlag } from '../lib/flags.js'
 import { type DnsOverrideWarning, type LinkDomainResult, linkDomain } from '../lib/link-domain.js'
 import { createOutput, outputError } from '../lib/output.js'
@@ -97,7 +97,9 @@ export default class Link extends Command {
 
     try {
       if (flags['dry-run']) {
-        const result = await linkDomain({ ...flags, domain, dryRun: true, timeoutSeconds: flags.timeout })
+        const result = await runDoomainEffect(
+          linkDomain({ ...flags, domain, dryRun: true, timeoutSeconds: flags.timeout }),
+        )
         out.result(result)
         if (!out.json) {
           p.note(dryRunPreview(result), 'Dry run')
@@ -109,30 +111,32 @@ export default class Link extends Command {
       out.intro('Doomain')
       spinner = out.spinner()
       spinner.start('Linking Vercel project and domain')
-      const result = await linkDomain({
-        ...flags,
-        domain,
-        confirmDnsOverride: out.json
-          ? undefined
-          : async (warning) => {
-              spinner?.stop('Existing DNS target found')
-              p.note(dnsOverrideNote(warning), 'DNS already points elsewhere')
-              const confirmed = await p.confirm({
-                message: `Override existing DNS records for ${warning.domain}?`,
-                initialValue: false,
-              })
-              if (confirmed === true) {
-                spinner?.start('Continuing domain link')
-                return true
-              }
+      const result = await runDoomainEffect(
+        linkDomain({
+          ...flags,
+          domain,
+          confirmDnsOverride: out.json
+            ? undefined
+            : async (warning) => {
+                spinner?.stop('Existing DNS target found')
+                p.note(dnsOverrideNote(warning), 'DNS already points elsewhere')
+                const confirmed = await p.confirm({
+                  message: `Override existing DNS records for ${warning.domain}?`,
+                  initialValue: false,
+                })
+                if (confirmed === true) {
+                  spinner?.start('Continuing domain link')
+                  return true
+                }
 
-              spinner = undefined
-              return false
-            },
-        dryRun: false,
-        progress: out.json ? undefined : ({ message }) => spinner?.message(message),
-        timeoutSeconds: flags.timeout,
-      })
+                spinner = undefined
+                return false
+              },
+          dryRun: false,
+          progress: out.json ? undefined : ({ message }) => spinner?.message(message),
+          timeoutSeconds: flags.timeout,
+        }),
+      )
       spinner.stop(result.vercel.verified ? 'Domain linked and verified' : 'Domain linked')
 
       out.result(result)
