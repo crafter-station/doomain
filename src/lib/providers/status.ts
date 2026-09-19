@@ -10,7 +10,9 @@ import type { DnsProviderDefinition } from './types.js'
 
 export interface ProviderStatus {
   account: string
+  accountLabel: string
   configured: boolean
+  /** @deprecated Use isPreferredProvider. */
   default: boolean
   displayName: string
   docsUrl?: string
@@ -18,6 +20,7 @@ export interface ProviderStatus {
   error?: string
   id: string
   isDefaultAccount: boolean
+  isPreferredProvider: boolean
   verified?: boolean
 }
 
@@ -45,12 +48,14 @@ export async function listProviderStatuses(opts: { verify?: boolean } = {}): Pro
       const configured = accounts.some((item) => item.account === account)
       const status: ProviderStatus = {
         account,
+        accountLabel: ref.isDefaultAccount ? `${definition.id}/default` : `${definition.id}/${account}`,
         configured,
         default: config.defaults?.provider === definition.id,
         displayName: definition.displayName,
         docsUrl: definition.docsUrl,
         id: definition.id,
         isDefaultAccount: ref.isDefaultAccount,
+        isPreferredProvider: config.defaults?.provider === definition.id,
       }
 
       if (configured && opts.verify) {

@@ -3,11 +3,13 @@ import { describe, it } from 'mocha'
 
 import { DoomainError } from '../../src/lib/errors.js'
 import { createPointRecord, pointDomain } from '../../src/lib/point-domain.js'
-import type { DnsChangePlan, DnsProvider, DnsRecordInput, DnsZone } from '../../src/lib/providers/types.js'
+import { planDnsChanges } from '../../src/lib/providers/core/planner.js'
+import type { DnsChangePlan, DnsProvider, DnsRecord, DnsRecordInput, DnsZone } from '../../src/lib/providers/types.js'
 
 const zone: DnsZone = { id: 'zone-1', name: 'example.com' }
 
 function providerWith(conflicts: DnsChangePlan['conflicts'] = []): DnsProvider {
+  let records: DnsChangePlan['existing'] = []
   return {
     id: 'test',
     name: 'Test DNS',
@@ -20,10 +22,20 @@ function providerWith(conflicts: DnsChangePlan['conflicts'] = []): DnsProvider {
       supportsProxying: false,
       supportsRecordIds: true,
     },
-    applyChanges: async (_zone, plan) => ({ applied: plan.changes, skipped: [] }),
+    applyChanges: async (_zone, plan) => {
+      for (const change of plan.changes) {
+        if (change.action === 'delete') records = records.filter((record) => record !== change.existing)
+        if (change.action === 'create') records.push({ ...change.record })
+        if (change.action === 'update') {
+          records = records.filter((record) => record !== change.existing)
+          records.push({ ...change.record })
+        }
+      }
+      return { applied: plan.changes, skipped: [] }
+    },
     deleteRecord: async () => undefined,
     getZone: async () => zone,
-    listRecords: async () => [],
+    listRecords: async () => records,
     listZones: async () => [zone],
     planChanges: async (_zone, desired) => ({
       changes: [{ action: 'create', record: desired[0] }],
@@ -190,9 +202,20 @@ describe('point domain', () => {
       { domain: 'app.example.com', target: '203.0.113.10', timeoutSeconds: 0 },
       {
         createProvider: async () => providerWith(),
-        resolve4: async () => {
+        observeDns: async (_fqdn, target, elapsedMs) => {
           checks += 1
-          return []
+          return [
+            {
+              answers: [],
+              elapsedMs,
+              expected: target.value,
+              kind: 'public',
+              matches: false,
+              resolver: 'cloudflare',
+              servers: ['1.1.1.1'],
+              type: target.type,
+            },
+          ]
         },
         resolveTarget: async () => ({
           account: 'default',
@@ -209,6 +232,8 @@ describe('point domain', () => {
     assert.equal(checks, 1)
     assert.equal(result.updated, true)
     assert.equal(result.propagated, false)
+    assert.equal(result.propagation.status, 'public_propagation_pending')
+    assert.equal(result.propagation.timeoutReason, 'public_resolvers_did_not_match_before_timeout')
   })
 
   it('recognizes equivalent IPv6 forms during propagation checks', async () => {
@@ -216,7 +241,18 @@ describe('point domain', () => {
       { domain: 'ipv6.example.com', target: '2001:db8::10', timeoutSeconds: 0 },
       {
         createProvider: async () => providerWith(),
-        resolve6: async () => ['2001:0db8:0000:0000:0000:0000:0000:0010'],
+        observeDns: async (_fqdn, target, elapsedMs) => [
+          {
+            answers: [{ ttl: 300, value: '2001:0db8:0000:0000:0000:0000:0000:0010' }],
+            elapsedMs,
+            expected: target.value,
+            kind: 'public',
+            matches: true,
+            resolver: 'cloudflare',
+            servers: ['1.1.1.1'],
+            type: target.type,
+          },
+        ],
         resolveTarget: async () => ({
           account: 'default',
           accountInferred: true,
@@ -230,5 +266,126 @@ describe('point domain', () => {
     )
 
     assert.equal(result.propagated, true)
+  })
+
+  it('reconciles a forced replacement after stale provider reads leave both values visible', async () => {
+    const desired: DnsRecordInput = { name: '@', ttl: 300, type: 'A', value: '203.0.113.10' }
+    const old = { name: '@', ttl: 300, type: 'A' as const, value: '76.76.21.21' }
+    let records: DnsRecord[] = [old]
+    let writes = 0
+    let reconciliationReads = 0
+    const provider = providerWith()
+    provider.listRecords = async () => {
+      reconciliationReads += 1
+      const observed = records
+      if (reconciliationReads === 1 && writes > 0) records = [{ ...desired }]
+      return observed
+    }
+    provider.planChanges = async (_zone, recordsToWrite, opts) =>
+      planDnsChanges({ desired: recordsToWrite, existing: records, force: opts?.force, providerId: 'test', zone })
+    provider.applyChanges = async (_zone, plan) => {
+      writes += 1
+      records = [old, { ...desired }]
+      return { applied: plan.changes, skipped: [] }
+    }
+
+    const result = await pointDomain(
+      { domain: 'example.com', force: true, target: desired.value, wait: false },
+      {
+        createProvider: async () => provider,
+        resolveTarget: async () => ({
+          account: 'default',
+          accountInferred: true,
+          isDefaultAccount: true,
+          provider: 'test',
+          providerInferred: true,
+          target: { fullDomain: 'example.com', isApex: true, recordName: '@', zoneDomain: 'example.com' },
+          warnings: [],
+        }),
+      },
+    )
+
+    assert.equal(writes, 1)
+    assert.equal(result.reconciled, true)
+    assert.equal(result.reconciliationAttempts, 2)
+    assert.deepEqual(records, [desired])
+  })
+
+  it('fails closed with observed records when provider reconciliation times out', async () => {
+    const provider = providerWith()
+    provider.listRecords = async () => [{ name: 'app', type: 'A', value: '192.0.2.1' }]
+
+    await assert.rejects(
+      pointDomain(
+        {
+          domain: 'app.example.com',
+          force: true,
+          reconcileTimeoutSeconds: 0,
+          target: '203.0.113.10',
+          wait: false,
+        },
+        {
+          createProvider: async () => provider,
+          resolveTarget: async () => ({
+            account: 'default',
+            accountInferred: true,
+            isDefaultAccount: true,
+            provider: 'test',
+            providerInferred: true,
+            target: { fullDomain: 'app.example.com', isApex: false, recordName: 'app', zoneDomain: 'example.com' },
+            warnings: [],
+          }),
+        },
+      ),
+      (error: unknown) => {
+        if (!(error instanceof DoomainError) || error.code !== 'DNS_RECONCILIATION_INCOMPLETE') return false
+        const details = error.details as { observed: Array<{ value: string }> }
+        return details.observed[0].value === '192.0.2.1'
+      },
+    )
+  })
+
+  it('identifies a stale system or VPN cache when public resolvers already match', async () => {
+    const result = await pointDomain(
+      { domain: 'app.example.com', target: '203.0.113.10', timeoutSeconds: 0 },
+      {
+        createProvider: async () => providerWith(),
+        observeDns: async (_fqdn, target, elapsedMs) => [
+          {
+            answers: [{ ttl: 2200, value: '76.76.21.21' }],
+            elapsedMs,
+            expected: target.value,
+            kind: 'system',
+            matches: false,
+            resolver: 'system',
+            servers: ['100.64.0.2'],
+            type: target.type,
+          },
+          {
+            answers: [{ ttl: 300, value: target.value }],
+            elapsedMs,
+            expected: target.value,
+            kind: 'public',
+            matches: true,
+            resolver: 'cloudflare',
+            servers: ['1.1.1.1'],
+            type: target.type,
+          },
+        ],
+        resolveTarget: async () => ({
+          account: 'default',
+          accountInferred: true,
+          isDefaultAccount: true,
+          provider: 'test',
+          providerInferred: true,
+          target: { fullDomain: 'app.example.com', isApex: false, recordName: 'app', zoneDomain: 'example.com' },
+          warnings: [],
+        }),
+      },
+    )
+
+    assert.equal(result.propagated, true)
+    assert.equal(result.propagation.status, 'local_or_vpn_cache_stale')
+    assert.equal(result.propagation.observations[0].answers[0].ttl, 2200)
   })
 })

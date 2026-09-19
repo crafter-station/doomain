@@ -13,6 +13,8 @@ Use the interactive wizard when working by hand. Use explicit commands with `--j
 - Vercel project detection from `.vercel/project.json`.
 - DNS provider inference by longest matching configured zone.
 - Generic DNS pointing for VPS, load balancer, and canonical-hostname targets.
+- Exact-match DNS removal with dry-run and post-delete verification.
+- DNS diagnosis across provider, system/VPN, Cloudflare, and Google views.
 - Dry-run plans before writing changes.
 - Safety checks before replacing DNS records that point elsewhere.
 - DNS propagation and Vercel verification wait loop.
@@ -257,9 +259,37 @@ doomain dns point app.example.com --target 203.0.113.10 --dry-run --json
 
 The preview resolves the provider, account, zone, record name, type, and value without reading or writing current DNS records. Conflicts are checked when a real write is attempted.
 
-By default, a successful write waits up to 300 seconds for public DNS. Use `--no-wait` to return immediately or `--timeout <seconds>` to change the limit. Skipping the wait, a dry run, or reaching the timeout returns `propagated: false`; a propagation timeout does not turn a successful provider write into an error.
+Every real write is re-read from the provider. Success is returned only when `reconciled: true` and the non-TXT slot contains only the desired record. If an eventually consistent provider does not reach that postcondition, the command fails with `DNS_RECONCILIATION_INCOMPLETE` and includes the observed records; do not treat accepted API requests as a completed cutover.
+
+By default, a successful write waits up to 300 seconds and compares the system resolver with Cloudflare and Google public DNS. Use `--no-wait` to skip resolver verification or `--timeout <seconds>` to change the limit. The JSON `propagation` object includes each resolver's answers, TTLs, expected target, elapsed time, status, and timeout reason. Node's resolver API does not expose CNAME TTLs, so those answers use `ttl: null` with `ttlUnavailableReason` instead of silently omitting the field.
+
+- `propagated`: public and system DNS match.
+- `local_or_vpn_cache_stale`: public DNS matches but the system/VPN resolver still serves cached data. The mutation is deployed, and `propagated` is `true`.
+- `system_resolver_unavailable`: public DNS matches, but the system resolver query failed. Public propagation is complete, and the resolver error is preserved for diagnosis.
+- `public_propagation_pending`: public DNS did not match before the timeout. The reconciled provider mutation succeeded, but `propagated` is `false`; this remains an exit-code-0 partial verification result.
+- `not_checked`: resolver verification was skipped or this was a dry run.
 
 Existing exact records are skipped. Conflicting records fail with `DNS_TARGET_CONFLICT` in JSON/non-interactive mode. Use `--force` only after approving replacement of the existing target.
+
+## Removing And Diagnosing DNS Records
+
+Removal defaults to an exact name/type/value match and verifies the record is absent after deletion:
+
+```bash
+doomain dns remove app.example.com --type A --value 203.0.113.10 --dry-run --json
+doomain dns remove app.example.com --type A --value 203.0.113.10 --json
+```
+
+`dns delete` is an alias. If more than one record matches, non-interactive mode fails with `DNS_DELETE_AMBIGUOUS`. Pass `--all-matching` only after reviewing the dry-run plan; interactive mode asks before deleting multiple records.
+
+Use the read-only diagnosis command to compare provider control-plane records with system/VPN and public DNS answers:
+
+```bash
+doomain dns diagnose example.com --json
+doomain dns diagnose app.example.com --type A --target 203.0.113.10 --json
+```
+
+Diagnosis reports record conflicts, answer TTLs, resolver addresses, active interface names, scoped macOS resolver/interface metadata when available, and one of `provider_not_updated`, `public_propagation_pending`, `local_or_vpn_cache_stale`, `system_resolver_unavailable`, or `consistent`.
 
 ## Clerk Production Domains
 
@@ -475,6 +505,33 @@ Common flags:
 - `--wait`, `--no-wait`: wait for public DNS propagation. Default is `--wait`.
 - `--timeout <seconds>`: propagation wait timeout. Default is `300`.
 - `--json`: output one JSON object.
+
+### `doomain dns remove <domain>`
+
+Removes exact DNS records and verifies their absence. `dns delete` is an alias.
+
+```bash
+doomain dns remove app.example.com --type A --value 203.0.113.10 --dry-run --json
+doomain dns remove app.example.com --type A --value 203.0.113.10 --json
+```
+
+Common flags:
+
+- `--type <A|AAAA|CNAME|MX|TXT>`: required record type.
+- `--value <value>`: expected exact value; required unless `--all-matching` is used.
+- `--all-matching`: explicitly select every record matching the name and type.
+- `--provider <id>`, `--account <alias>`: select a configured provider account.
+- `--dry-run`: list selected records without deleting them.
+- `--json`: output one JSON object and never prompt.
+
+### `doomain dns diagnose <domain>`
+
+Compares DNS provider records with the system resolver and independent public resolvers.
+
+```bash
+doomain dns diagnose example.com --json
+doomain dns diagnose app.example.com --type A --target 203.0.113.10 --json
+```
 
 ### `doomain auth logout vercel`
 

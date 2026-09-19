@@ -80,7 +80,7 @@ function toDnsRecords(record: HostingerZoneRecord, zone: DnsZone): DnsRecord[] {
 
     return [
       {
-        metadata: { hostinger: { ...record, records: [item] } },
+        metadata: { hostinger: record },
         name,
         ttl: record.ttl,
         type,
@@ -90,12 +90,13 @@ function toDnsRecords(record: HostingerZoneRecord, zone: DnsZone): DnsRecord[] {
   })
 }
 
-function toHostingerRecord(record: DnsRecordInput): HostingerZoneRecord {
+function toHostingerRecordSet(records: DnsRecordInput[]): HostingerZoneRecord {
+  const first = records[0]
   return {
-    name: record.name,
-    records: [{ content: record.value }],
-    ttl: record.ttl ?? capabilities.defaultTtl,
-    type: record.type,
+    name: first.name,
+    records: records.map((record) => ({ content: record.value })),
+    ttl: first.ttl ?? capabilities.defaultTtl,
+    type: first.type,
   }
 }
 
@@ -192,14 +193,40 @@ export class HostingerProvider implements DnsProvider {
     const applied: DnsChange[] = []
     const skipped: DnsRecordInput[] = []
 
+    const deletionSets = new Map<string, Extract<DnsChange, { action: 'delete' }>['existing'][]>()
+    for (const change of plan.changes) {
+      if (change.action !== 'delete') continue
+      const key = `${change.existing.type}\0${change.existing.name}`
+      const records = deletionSets.get(key) ?? []
+      records.push(change.existing)
+      deletionSets.set(key, records)
+    }
+
+    for (const deleted of deletionSets.values()) {
+      const sample = deleted[0]
+      const source = sample.metadata?.hostinger as HostingerZoneRecord | undefined
+      const deletedValues = new Set(deleted.map((record) => record.value))
+      const sourceRecords = source?.records?.filter(
+        (record) => record.is_disabled || !record.content || !deletedValues.has(record.content),
+      )
+      if (source && sourceRecords && sourceRecords.length > 0) {
+        await this.putHostingerRecordSets(zone, [{ ...source, records: sourceRecords }], true)
+      } else {
+        const remaining = plan.existing.filter((record) => sameRecordSet(record, sample) && !deleted.includes(record))
+        if (remaining.length > 0) await this.putRecords(zone, remaining, true)
+        else await this.deleteRecord(zone, sample)
+      }
+      applied.push(...plan.changes.filter((change) => change.action === 'delete' && deleted.includes(change.existing)))
+    }
+
     for (const change of plan.changes) {
       if (change.action === 'skip') {
         skipped.push(change.record)
         continue
       }
 
-      if (change.action === 'delete') await this.deleteRecord(zone, change.existing)
-      else await this.putRecords(zone, [change.record], change.action === 'update')
+      if (change.action === 'delete') continue
+      await this.putRecords(zone, [change.record], change.action === 'update')
 
       applied.push(change)
     }
@@ -220,8 +247,23 @@ export class HostingerProvider implements DnsProvider {
   }
 
   private async putRecords(zone: DnsZone, records: DnsRecordInput[], overwrite: boolean): Promise<void> {
+    const recordSets = new Map<string, DnsRecordInput[]>()
+    for (const record of records) {
+      const key = `${record.type}\0${record.name}`
+      const values = recordSets.get(key) ?? []
+      values.push(record)
+      recordSets.set(key, values)
+    }
+    await this.putHostingerRecordSets(zone, [...recordSets.values()].map(toHostingerRecordSet), overwrite)
+  }
+
+  private async putHostingerRecordSets(
+    zone: DnsZone,
+    recordSets: HostingerZoneRecord[],
+    overwrite: boolean,
+  ): Promise<void> {
     await this.http.request(`/api/dns/v1/zones/${encodeURIComponent(zone.name)}`, {
-      body: { overwrite, zone: records.map(toHostingerRecord) },
+      body: { overwrite, zone: recordSets },
       method: 'PUT',
     })
   }

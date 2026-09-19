@@ -1,7 +1,7 @@
 import { normalizeDomain } from '../../validate.js'
 import { createProviderHttpClient, type ProviderHttpClient } from '../core/http.js'
 import { paginateBySkip } from '../core/pagination.js'
-import { applyDnsChanges, planDnsChanges } from '../core/planner.js'
+import { assertNoConflicts, planDnsChanges } from '../core/planner.js'
 import type {
   DnsChangePlan,
   DnsProvider,
@@ -152,12 +152,21 @@ export class SpaceshipProvider implements DnsProvider {
     zone: DnsZone,
     plan: DnsChangePlan,
   ): Promise<{ applied: DnsChangePlan['changes']; skipped: DnsRecordInput[] }> {
-    return applyDnsChanges({
-      deleteRecord: (record) => this.deleteRecord(zone, record),
-      plan,
-      providerId: this.id,
-      upsertRecord: (record) => this.upsertRecord(zone, record),
-    })
+    assertNoConflicts(this.id, plan)
+    const skipped = plan.changes.flatMap((change) => (change.action === 'skip' ? [change.record] : []))
+    const applied = plan.changes.filter((change) => change.action !== 'skip')
+
+    // Spaceship records do not have stable ids. Delete every old value before creating
+    // replacements so an API that processes accepted writes out of order cannot leave
+    // two address records in the same slot without the reconciler noticing and retrying.
+    for (const change of applied) {
+      if (change.action === 'delete' || change.action === 'update') await this.deleteRecord(zone, change.existing)
+    }
+    for (const change of applied) {
+      if (change.action === 'create' || change.action === 'update') await this.upsertRecord(zone, change.record)
+    }
+
+    return { applied, skipped }
   }
 
   async upsertRecord(zone: DnsZone, record: DnsRecordInput): Promise<DnsRecord> {

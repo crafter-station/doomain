@@ -455,7 +455,7 @@ describe('link', () => {
     })
   })
 
-  it("fails closed when an explicit provider's account cannot be searched", async () => {
+  it('fails closed when an inferred provider account cannot be searched', async () => {
     await saveConfig({
       providers: {
         spaceship: {
@@ -479,7 +479,12 @@ describe('link', () => {
 
     let error: unknown
     try {
-      await linkDomain({ domain: 'app.example.com', dryRun: true, project: 'prj_123', provider: 'spaceship' })
+      await linkDomain({
+        domain: 'app.example.com',
+        dryRun: true,
+        project: 'prj_123',
+        provider: 'spaceship',
+      })
     } catch (error_) {
       error = error_
     }

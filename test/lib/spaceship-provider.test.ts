@@ -45,4 +45,44 @@ describe('spaceship provider', () => {
       { id: 'gamma.com', name: 'gamma.com' },
     ])
   })
+
+  it('deletes every replaced value before creating the desired value', async () => {
+    process.env.SPACESHIP_API_KEY = 'key'
+    process.env.SPACESHIP_API_SECRET = 'secret'
+    const requests: Array<{ body: unknown; method: string }> = []
+
+    globalThis.fetch = (async (_input, init) => {
+      requests.push({ body: JSON.parse(String(init?.body)), method: init?.method ?? 'GET' })
+      return { json: async () => ({}), ok: true, status: 200 } as Response
+    }) as typeof fetch
+
+    const provider = await createProvider('spaceship')
+    const zone = { id: 'example.com', name: 'example.com' }
+    await provider.applyChanges(zone, {
+      changes: [
+        {
+          action: 'update',
+          existing: { name: '@', ttl: 300, type: 'A', value: '76.76.21.21' },
+          record: { name: '@', ttl: 300, type: 'A', value: '203.0.113.10' },
+        },
+        {
+          action: 'delete',
+          existing: { name: '@', ttl: 300, type: 'A', value: '192.0.2.1' },
+        },
+      ],
+      conflicts: [],
+      desired: [{ name: '@', ttl: 300, type: 'A', value: '203.0.113.10' }],
+      existing: [
+        { name: '@', ttl: 300, type: 'A', value: '76.76.21.21' },
+        { name: '@', ttl: 300, type: 'A', value: '192.0.2.1' },
+      ],
+      zone,
+    })
+
+    expect(requests.map((request) => request.method)).to.deep.equal(['DELETE', 'DELETE', 'PUT'])
+    expect(requests[2].body).to.deep.equal({
+      force: true,
+      items: [{ address: '203.0.113.10', name: '@', ttl: 300, type: 'A' }],
+    })
+  })
 })

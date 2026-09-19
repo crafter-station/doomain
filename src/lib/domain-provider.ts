@@ -273,7 +273,9 @@ async function loadConfiguredProviderZones(
   }
 
   const results = await Promise.all(
-    providerAccounts.map(({ definition, ref }) => loadProviderZonesSafely(definition, ref)),
+    providerAccounts.map(({ definition, ref }) =>
+      tolerateProviderAccountErrors ? loadProviderZonesSafely(definition, ref) : loadProviderZones(definition, ref),
+    ),
   )
 
   return {

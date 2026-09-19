@@ -63,6 +63,9 @@ describe('dns point', () => {
           provider: 'spaceship',
           providerInferred: true,
           propagated: false,
+          propagation: { elapsedMs: 0, expected: '203.0.113.10', observations: [], status: 'not_checked' },
+          reconciled: false,
+          reconciliationAttempts: 0,
           record: { name: 'app', ttl: 300, type: 'A', value: '203.0.113.10' },
           skipped: [],
           updated: false,
@@ -108,15 +111,21 @@ describe('dns point', () => {
   it('writes the record and reports propagation as unchecked with --no-wait', async () => {
     const requests: string[] = []
     const bodies: unknown[] = []
+    let written = false
     globalThis.fetch = (async (input, init) => {
       const url = new URL(String(input))
       const method = init?.method ?? 'GET'
       requests.push(`${method} ${url.pathname}`)
       if (url.pathname === '/api/v1/domains') return jsonResponse({ items: [{ name: 'example.com' }], total: 1 })
       if (method === 'GET' && url.pathname === '/api/v1/dns/records/example.com')
-        return jsonResponse({ items: [], total: 0 })
+        return jsonResponse(
+          written
+            ? { items: [{ address: '203.0.113.10', name: 'app', ttl: 300, type: 'A' }], total: 1 }
+            : { items: [], total: 0 },
+        )
       if (method === 'PUT' && url.pathname === '/api/v1/dns/records/example.com') {
         bodies.push(JSON.parse(String(init?.body)))
+        written = true
         return jsonResponse({})
       }
 
@@ -168,5 +177,63 @@ describe('dns point', () => {
       'doomain providers connect',
       'doomain dns point app.example.com --target 203.0.113.10 --json',
     ])
+  })
+
+  it('removes one exact DNS record and emits one JSON envelope', async () => {
+    let records = [{ address: '203.0.113.10', name: 'app', ttl: 300, type: 'A' }]
+    const deleted: unknown[] = []
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input))
+      const method = init?.method ?? 'GET'
+      if (url.pathname === '/api/v1/domains') return jsonResponse({ items: [{ name: 'example.com' }], total: 1 })
+      if (method === 'GET' && url.pathname === '/api/v1/dns/records/example.com') {
+        return jsonResponse({ items: records, total: records.length })
+      }
+      if (method === 'DELETE' && url.pathname === '/api/v1/dns/records/example.com') {
+        deleted.push(JSON.parse(String(init?.body)))
+        records = []
+        return jsonResponse({})
+      }
+      throw new Error(`Unexpected request: ${method} ${url.href}`)
+    }) as typeof fetch
+
+    const { stdout } = await runCommand(
+      'dns remove app.example.com --provider spaceship --type A --value 203.0.113.10 --json',
+    )
+    const result = JSON.parse(stdout) as { data: { reconciled: boolean; removed: number }; ok: boolean }
+
+    expect(stdout.trim().split('\n')).to.have.length(1)
+    expect(result).to.deep.include({ ok: true })
+    expect(result.data).to.deep.include({ reconciled: true, removed: 1 })
+    expect(deleted).to.deep.equal([[{ address: '203.0.113.10', name: 'app', ttl: 300, type: 'A' }]])
+  })
+
+  it('refuses an ambiguous DNS removal without deleting records', async () => {
+    let deleteRequests = 0
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input))
+      const method = init?.method ?? 'GET'
+      if (url.pathname === '/api/v1/domains') return jsonResponse({ items: [{ name: 'example.com' }], total: 1 })
+      if (method === 'GET' && url.pathname === '/api/v1/dns/records/example.com') {
+        return jsonResponse({
+          items: [
+            { address: '203.0.113.10', name: 'app', ttl: 300, type: 'A' },
+            { address: '203.0.113.10', name: 'app', ttl: 600, type: 'A' },
+          ],
+          total: 2,
+        })
+      }
+      if (method === 'DELETE') deleteRequests += 1
+      throw new Error(`Unexpected request: ${method} ${url.href}`)
+    }) as typeof fetch
+
+    const { stdout } = await runCommand(
+      'dns remove app.example.com --provider spaceship --type A --value 203.0.113.10 --json',
+    )
+    const result = JSON.parse(stdout) as { error: { code: string }; ok: boolean }
+
+    expect(result.ok).to.equal(false)
+    expect(result.error.code).to.equal('DNS_DELETE_AMBIGUOUS')
+    expect(deleteRequests).to.equal(0)
   })
 })

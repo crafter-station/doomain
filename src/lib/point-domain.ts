@@ -1,12 +1,11 @@
-import { resolve4, resolve6, resolveCname } from 'node:dns/promises'
-import { isIP } from 'node:net'
-
+import { type DnsPropagationResult, type DnsResolverObservation, waitForDnsPropagation } from './dns-propagation.js'
+import { reconcileDesiredRecord } from './dns-reconciliation.js'
+import { inferAddressRecordType, normalizeAddressRecordTarget } from './dns-records.js'
 import { type ResolvedDnsTarget, resolveProviderTarget } from './domain-provider.js'
 import { DoomainError } from './errors.js'
 import { type DnsOverrideWarning, withProviderRecordOptions } from './link-domain.js'
 import { createProvider } from './providers/registry.js'
 import type { DnsProvider, DnsRecordInput } from './providers/types.js'
-import { normalizeDomain } from './validate.js'
 
 export type PointRecordType = 'A' | 'AAAA' | 'CNAME'
 
@@ -21,6 +20,7 @@ export interface PointDomainInput {
   timeoutSeconds?: number
   ttl?: number
   wait?: boolean
+  reconcileTimeoutSeconds?: number
   confirmDnsOverride?: (warning: DnsOverrideWarning) => Promise<boolean>
   progress?: (message: string) => void
 }
@@ -34,6 +34,9 @@ export interface PointDomainResult {
   provider: string
   providerInferred: boolean
   propagated: boolean
+  propagation: DnsPropagationResult
+  reconciled: boolean
+  reconciliationAttempts: number
   record: DnsRecordInput
   skipped: DnsRecordInput[]
   updated: boolean
@@ -42,35 +45,17 @@ export interface PointDomainResult {
 
 interface PointDomainDependencies {
   createProvider: (provider: string, opts: { account?: string }) => Promise<DnsProvider>
-  resolve4?: (hostname: string) => Promise<string[]>
-  resolve6?: (hostname: string) => Promise<string[]>
-  resolveCname?: (hostname: string) => Promise<string[]>
+  observeDns?: (
+    fqdn: string,
+    target: Pick<DnsRecordInput, 'type' | 'value'>,
+    elapsedMs: number,
+  ) => Promise<DnsResolverObservation[]>
   resolveTarget: (input: Pick<PointDomainInput, 'account' | 'domain' | 'provider'>) => Promise<ResolvedDnsTarget>
 }
 
 const defaultDependencies: PointDomainDependencies = {
   createProvider,
   resolveTarget: resolveProviderTarget,
-}
-
-function cleanTarget(value: string): string {
-  return value.trim().replace(/\.$/, '')
-}
-
-function inferredRecordType(target: string): PointRecordType {
-  const version = isIP(target)
-  if (version === 4) return 'A'
-  if (version === 6) return 'AAAA'
-  return 'CNAME'
-}
-
-function validateTarget(recordType: PointRecordType, target: string): void {
-  const version = isIP(target)
-  if (recordType === 'A' && version !== 4) throw new DoomainError('INVALID_INPUT', 'A records require an IPv4 target.')
-  if (recordType === 'AAAA' && version !== 6)
-    throw new DoomainError('INVALID_INPUT', 'AAAA records require an IPv6 target.')
-  if (recordType === 'CNAME' && version !== 0)
-    throw new DoomainError('INVALID_INPUT', 'CNAME records require a hostname target.')
 }
 
 export function createPointRecord(input: {
@@ -80,67 +65,18 @@ export function createPointRecord(input: {
   target: string
   ttl?: number
 }): DnsRecordInput {
-  const target = cleanTarget(input.target)
-  if (!target) throw new DoomainError('MISSING_ARGUMENT', 'A DNS target is required.')
-  const recordType = input.recordType ?? inferredRecordType(target)
-  validateTarget(recordType, target)
+  const recordType = input.recordType ?? inferAddressRecordType(input.target.trim())
+  const target = normalizeAddressRecordTarget(recordType, input.target)
   return withProviderRecordOptions(input.provider, {
     name: input.recordName,
     ttl: input.ttl ?? 300,
     type: recordType,
-    value: recordType === 'CNAME' ? normalizeDomain(target) : target,
+    value: target,
   })
 }
 
 function recordFqdn(record: DnsRecordInput, zoneDomain: string): string {
   return record.name === '@' ? zoneDomain : `${record.name}.${zoneDomain}`
-}
-
-function cleanDnsValue(value: string): string {
-  return value.toLowerCase().replace(/\.$/, '')
-}
-
-function normalizeIpv6(value: string): string {
-  return new URL(`http://[${value}]`).hostname.slice(1, -1)
-}
-
-async function isPropagated(
-  record: DnsRecordInput,
-  zoneDomain: string,
-  dependencies: PointDomainDependencies,
-): Promise<boolean> {
-  const fqdn = recordFqdn(record, zoneDomain)
-  try {
-    if (record.type === 'A') return (await (dependencies.resolve4 ?? resolve4)(fqdn)).includes(record.value)
-    if (record.type === 'AAAA') {
-      const expected = normalizeIpv6(record.value)
-      return (await (dependencies.resolve6 ?? resolve6)(fqdn)).some((value) => normalizeIpv6(value) === expected)
-    }
-
-    if (record.type === 'CNAME') {
-      return (await (dependencies.resolveCname ?? resolveCname)(fqdn))
-        .map(cleanDnsValue)
-        .includes(cleanDnsValue(record.value))
-    }
-  } catch {
-    return false
-  }
-  return false
-}
-
-async function waitForPropagation(
-  record: DnsRecordInput,
-  zoneDomain: string,
-  timeoutSeconds: number,
-  dependencies: PointDomainDependencies,
-): Promise<boolean> {
-  const deadline = Date.now() + timeoutSeconds * 1000
-  while (true) {
-    if (await isPropagated(record, zoneDomain, dependencies)) return true
-    const remaining = deadline - Date.now()
-    if (remaining <= 0) return false
-    await new Promise((resolve) => setTimeout(resolve, Math.min(5000, remaining)))
-  }
 }
 
 function conflictWarning(
@@ -254,6 +190,14 @@ export async function pointDomain(
       provider: resolved.provider,
       providerInferred: resolved.providerInferred,
       propagated: false,
+      propagation: {
+        elapsedMs: 0,
+        expected: record.value,
+        observations: [],
+        status: 'not_checked',
+      },
+      reconciled: false,
+      reconciliationAttempts: 0,
       record,
       skipped: [],
       updated: false,
@@ -281,10 +225,26 @@ export async function pointDomain(
 
   input.progress?.(`Pointing ${resolved.target.fullDomain} to ${record.value}`)
   const result = await provider.applyChanges(zone, plan, { force })
+  const reconciliation = await reconcileDesiredRecord({
+    desired: record,
+    progress: input.progress,
+    provider,
+    timeoutMs: (input.reconcileTimeoutSeconds ?? 30) * 1000,
+    zone,
+  })
   const shouldWait = input.wait ?? true
-  const propagated = shouldWait
-    ? await waitForPropagation(record, resolved.target.zoneDomain, input.timeoutSeconds ?? 300, dependencies)
-    : false
+  const propagation: DnsPropagationResult = shouldWait
+    ? await waitForDnsPropagation({
+        fqdn: recordFqdn(record, resolved.target.zoneDomain),
+        observe: dependencies.observeDns,
+        record,
+        timeoutSeconds: input.timeoutSeconds ?? 300,
+      })
+    : { elapsedMs: 0, expected: record.value, observations: [], status: 'not_checked' }
+  const propagated =
+    propagation.status === 'propagated' ||
+    propagation.status === 'local_or_vpn_cache_stale' ||
+    propagation.status === 'system_resolver_unavailable'
 
   return {
     account: resolved.account,
@@ -295,9 +255,12 @@ export async function pointDomain(
     provider: resolved.provider,
     providerInferred: resolved.providerInferred,
     propagated,
+    propagation,
+    reconciled: reconciliation.reconciled,
+    reconciliationAttempts: reconciliation.attempts,
     record,
     skipped: result.skipped,
-    updated: result.applied.length > 0,
+    updated: result.applied.length > 0 || reconciliation.appliedChanges > 0,
     zoneDomain: resolved.target.zoneDomain,
   }
 }

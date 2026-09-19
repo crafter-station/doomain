@@ -46,12 +46,14 @@ describe('schema', () => {
     })
     expect(result.data.configuredProviders).to.deep.include({
       account: 'default',
+      accountLabel: 'cloudflare/default',
       configured: true,
       default: false,
       displayName: 'Cloudflare',
       docsUrl: 'https://developers.cloudflare.com/api/',
       id: 'cloudflare',
       isDefaultAccount: true,
+      isPreferredProvider: false,
     })
     expect(result.data.examples).to.include('doomain link --project my-app --json')
     expect(result.data.examples).to.include(
@@ -83,6 +85,9 @@ describe('schema', () => {
       'verify',
       'clerk domains add',
       'dns point',
+      'dns remove',
+      'dns delete',
+      'dns diagnose',
       'auth clerk',
       'update',
       'upgrade',
@@ -106,12 +111,14 @@ describe('schema', () => {
     expect(result.data.agentHint).to.include('VPS or load balancer')
     expect(result.data.configuredProviders).to.deep.include({
       account: 'default',
+      accountLabel: 'cloudflare/default',
       configured: true,
       default: false,
       displayName: 'Cloudflare',
       docsUrl: 'https://developers.cloudflare.com/api/',
       id: 'cloudflare',
       isDefaultAccount: true,
+      isPreferredProvider: false,
     })
     expect(result.data.flags.map((flag) => flag.name)).to.include.members([
       'domain',
